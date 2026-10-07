@@ -750,6 +750,17 @@ jobs:
             }
           }
 
+          # The Visual Studio installer is the supported route, but a modify
+          # that will not take is not the only way to get an SDK onto a
+          # machine, and winget carries the standalone installers. Tried
+          # second, and only when the first route did not land.
+          if (-not (Test-Path $sdkInclude) -and (Get-Command winget -ErrorAction SilentlyContinue)) {
+            $wingetId = "Microsoft.WindowsSDK.10.0.$($sdkVersion.Split('.')[2])"
+            Write-Host "::notice title=Windows SDK::the Visual Studio installer did not add it; trying winget $wingetId"
+            & winget install --id $wingetId --exact --accept-source-agreements --accept-package-agreements --disable-interactivity 2>&1 | Tee-Object -FilePath 'artifacts/logs/sdk-winget.log'
+            if ($LASTEXITCODE -ne 0) { Write-Host "winget exited $LASTEXITCODE" }
+          }
+
           $presentAfter = Test-Path $sdkInclude
           if (-not $presentAfter) {
             Write-Host "::error title=Windows SDK::$sdkVersion is still absent after the install attempt; setup_toolchain.py asks vcvarsall.bat for it by name, so gn gen is expected to fail"
@@ -759,10 +770,16 @@ jobs:
             foreach ($log in @('artifacts/logs/sdk-install.err.log', 'artifacts/logs/sdk-install.out.log')) {
               Publish-LogTail -Path $log -Title "SDK install: $(Split-Path $log -Leaf)"
             }
-            $dd = @(Get-ChildItem -Path $env:TEMP -Filter 'dd_*.log' -ErrorAction SilentlyContinue |
-              Sort-Object LastWriteTime -Descending | Select-Object -First 2)
+            # dd_installer_*.log is the update check and says nothing useful
+            # about a modify; dd_setup_*.log is the engine that ran it.
+            $dd = @()
+            foreach ($pattern in @('dd_setup_*.log', 'dd_client_*.log', 'dd_installer_*.log')) {
+              $dd += @(Get-ChildItem -Path $env:TEMP -Filter $pattern -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+            }
             foreach ($log in $dd) {
-              Publish-LogTail -Path $log.FullName -Title "VS installer: $($log.Name)"
+              Publish-LogTail -Path $log.FullName -Title "VS installer: $($log.Name)" -Lines 12 -PerAnnotation 2 `
+                -Match '(?i)(error|fail|0x8|not found|unknown|invalid|modify|component|already)'
             }
           } else {
             Write-Host "::notice title=Windows SDK::$sdkVersion present after the install attempt"
@@ -856,13 +873,15 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
-          node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only verify-patches --log-dir artifacts/logs
+          # build.mjs writes the command it ran into its own log and streams
+          # everything the tool printed to the console - which is exactly the
+          # output this run cannot read. Tee it, so a failing check is a line
+          # in a file instead of an exit code in an unreachable log.
+          node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only verify-patches --log-dir artifacts/logs 2>&1 | Tee-Object -FilePath 'artifacts/logs/verify-patches.console.log'
           if ($LASTEXITCODE -ne 0) {
-            # A failed check is one line in a report of a dozen; without the
-            # tail the run can say "the patches did not verify" and nothing
-            # else, which is what run 7 did.
             . .\tools\ci\publish-log-tail.ps1
-            Publish-LogTail -Path 'artifacts/logs/verify-patches.log' -Title 'patch set did not verify'
+            Publish-LogTail -Path 'artifacts/logs/verify-patches.console.log' -Title 'patch set did not verify'
+            Publish-LogTail -Path 'artifacts/logs/verify-patches.log' -Title 'verify-patches command'
             throw "the patch set did not verify against the pinned revision (exit $LASTEXITCODE)"
           }
 
@@ -874,11 +893,10 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
-          node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only install-overlay,fork-delta --log-dir artifacts/logs
+          node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only install-overlay,fork-delta --log-dir artifacts/logs 2>&1 | Tee-Object -FilePath 'artifacts/logs/overlay.console.log'
           if ($LASTEXITCODE -ne 0) {
             . .\tools\ci\publish-log-tail.ps1
-            Publish-LogTail -Path 'artifacts/logs/install-overlay.log' -Title 'overlay or patch series failed'
-            Publish-LogTail -Path 'artifacts/logs/fork-delta.log' -Title 'fork delta budget failed'
+            Publish-LogTail -Path 'artifacts/logs/overlay.console.log' -Title 'overlay or patch series failed'
             throw "the overlay, patch series or delta budget failed (exit $LASTEXITCODE)"
           }
 
@@ -891,10 +909,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
           $env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
-          node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only gn-args,gn-gen --log-dir artifacts/logs
+          node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only gn-args,gn-gen --log-dir artifacts/logs 2>&1 | Tee-Object -FilePath 'artifacts/logs/gn.console.log'
           if ($LASTEXITCODE -ne 0) {
             . .\tools\ci\publish-log-tail.ps1
-            Publish-LogTail -Path 'artifacts/logs/gn.log' -Title 'gn gen failed'
+            Publish-LogTail -Path 'artifacts/logs/gn.console.log' -Title 'gn gen failed'
+            Publish-LogTail -Path 'artifacts/logs/gn.log' -Title 'gn gen command'
             throw "gn gen failed (exit $LASTEXITCODE)"
           }
           $argsFile = Join-Path $env:AURELIA_CHROMIUM_DEST 'src/out/Release/args.gn'

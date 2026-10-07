@@ -11,24 +11,19 @@ automation credential cannot create workflow_dispatch events:
 Removed again once the run has FINISHED - not while it is in flight, because
 editing the workflow's trigger set cancels the run that is flying.
 
-Run 8
+Run 9
 -----
-Runs 1-4 died on bugs in this repository's own workflow code.
-Run 5: sync finished, then the toolchain hook died with the step's budget
-  already spent.
-Run 6: sync finished in 19 min; the toolchain hook said the packaged
-  Chromium toolchain lives in a Google Cloud bucket that refuses anonymous
-  callers, so DEPOT_TOOLS_WIN_TOOLCHAIN=0 is the only setting that can work.
-Run 7: sync 15 min, DEPS hooks green for the first time - and then
-  verify-patches failed in seven seconds. The same patch set verifies
-  cleanly here through the upstream API, so the difference is the machine:
-  docs/windows_build_instructions.md at the pinned revision asks for
-  core.autocrlf=false, core.filemode=false and core.longpaths=true before
-  fetching, and this workflow has never set any of them. Verification
-  digests upstream blobs read with `git show`, so any line-ending
-  conversion between the blob and the recorded pre-image fails it on
-  Windows only.
+Runs 1-4: bugs in this repository's own workflow code.
+Run 5: sync finished, toolchain hook died with the budget already spent.
+Run 6: the packaged Chromium toolchain lives in a Google Cloud bucket that
+  refuses anonymous callers, so DEPOT_TOOLS_WIN_TOOLCHAIN=0 is forced.
+Run 7: sync 15 min, hooks green, verify-patches failed in 7 s.
+Run 8: same. The missing piece was that build.mjs writes only the command
+  it ran into its stage log and streams the tool's real output to the
+  console - which is the one thing this environment cannot read. So the
+  run could name the stage but never the check.
 
-This run sets that git configuration the way the pinned Chromium asks for
-it, and publishes the tail of every stage that can fail - the patch
-verification report, the overlay, gn gen - instead of only the sync.
+This run tees that console output into artifacts/logs/*.console.log and
+publishes it on failure, so verify-patches finally says which check fails.
+It also reads the Visual Studio installer's dd_setup_*.log instead of its
+update-check log, and falls back to winget for the pinned SDK.

@@ -22,7 +22,11 @@ function Publish-LogTail {
     [string]$Path,
     [string]$Title,
     [int]$Lines = 24,
-    [int]$PerAnnotation = 3
+    [int]$PerAnnotation = 3,
+    # Optional. A verbose log - the Visual Studio installer's, say - is mostly
+    # progress noise, and ten annotations are worth more spent on the lines
+    # that explain a refusal than on the ones that say it is still trying.
+    [string]$Match = ''
   )
 
   if ([string]::IsNullOrWhiteSpace($Path)) { return }
@@ -31,6 +35,10 @@ function Publish-LogTail {
   $all = @(Get-Content -LiteralPath $Path -Tail 400 -ErrorAction SilentlyContinue |
       Where-Object { $_.Trim().Length -gt 0 })
   if ($all.Count -eq 0) { return }
+  if (-not [string]::IsNullOrWhiteSpace($Match)) {
+    $all = @($all | Where-Object { $_ -match $Match })
+    if ($all.Count -eq 0) { return }
+  }
 
   $tail = @($all | Select-Object -Last $Lines)
 
