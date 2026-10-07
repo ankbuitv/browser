@@ -1,0 +1,27 @@
+HOSTED_CONSTRAINED_EXPERIMENT - one-shot trigger (temporary)
+============================================================
+
+Starts the controlled run of
+.github/workflows/chromium-hosted-constrained-experiment.yml, because the
+automation credential cannot create workflow_dispatch events:
+
+    HTTP 403: Resource not accessible by integration
+    POST /repos/ankbuitv/browser/actions/workflows/{id}/dispatches
+
+Removed again once the run has FINISHED - not while it is in flight, because
+editing the workflow's trigger set cancels the run that is flying.
+
+Run 4
+-----
+Run 1 (37639529172): died in 30 s on two bugs in the new measurement code
+  (the volume sort was a no-op, and the SDK was looked for in one directory).
+Run 2 (37641104136): reached the Chromium sync, which failed after ~18 min,
+  and could not say why - the logs live in a blob store this repository's
+  tooling cannot reach.
+Run 3 (37644814138): invalidated by the commit that retired this trigger
+  while it was still flying. No experiment ran.
+
+This run publishes log tails as ::error annotations (the one channel that is
+readable through the checks API), tries the documented sync reductions in
+order and drops the one that breaks instead of aborting, and discards a
+failed shallow clone so the next attempt starts clean.
