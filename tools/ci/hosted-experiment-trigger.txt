@@ -11,7 +11,7 @@ automation credential cannot create workflow_dispatch events:
 Removed again once the run has FINISHED - not while it is in flight, because
 editing the workflow's trigger set cancels the run that is flying.
 
-Run 4
+Run 5
 -----
 Run 1 (37639529172): died in 30 s on two bugs in the new measurement code
   (the volume sort was a no-op, and the SDK was looked for in one directory).
@@ -20,8 +20,14 @@ Run 2 (37641104136): reached the Chromium sync, which failed after ~18 min,
   tooling cannot reach.
 Run 3 (37644814138): invalidated by the commit that retired this trigger
   while it was still flying. No experiment ran.
+Run 4 (37645409971): died in one second. The sync step asked `gclient help
+  sync` which reductions the installed depot_tools supports, but depot_tools
+  is not on PATH until the sync has produced it, so the call threw
+  CommandNotFoundException before a single file was fetched. The gate is
+  gone - tools/chromium/sync.mjs asks the same question itself, at the one
+  moment when it has an answer - and the attempt loop is wrapped so that a
+  terminating error publishes its log tail and its message instead of
+  leaving the run unable to say anything.
 
-This run publishes log tails as ::error annotations (the one channel that is
-readable through the checks API), tries the documented sync reductions in
-order and drops the one that breaks instead of aborting, and discards a
-failed shallow clone so the next attempt starts clean.
+Every sync attempt now announces itself as an annotation, publishes the tail
+of its log when it fails, and discards the partial tree it leaves behind.

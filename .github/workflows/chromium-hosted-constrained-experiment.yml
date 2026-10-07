@@ -534,9 +534,12 @@ jobs:
           # This repository's logs are not readable by every tool that needs to
           # audit a run, so a failure has to be pushed somewhere that is: job
           # annotations, which the checks API returns. Publish-LogTail echoes
-          # the tail of a log as ::error annotations (escaped, truncated).
+          # the tail of a log as ::error annotations (escaped, truncated,
+          # and kept well under the ten-annotations-per-step limit, which
+          # keeps the first ten and silently discards the rest).
           function Publish-LogTail {
-            param([string]$Path, [string]$Title, [int]$Count = 15)
+            param([string]$Path, [string]$Title, [int]$Count = 8)
+            if ([string]::IsNullOrWhiteSpace($Path)) { return }
             if (-not (Test-Path $Path)) { return }
             $lines = @(Get-Content $Path -Tail 400 -ErrorAction SilentlyContinue |
               Where-Object { $_.Trim().Length -gt 0 })
@@ -548,9 +551,14 @@ jobs:
             }
           }
 
-          # Which of the documented reductions the installed gclient accepts.
-          $gclientHelp = (& gclient help sync 2>&1 | Out-String)
-          Write-Host "::notice title=gclient sync switches::no-history=$($gclientHelp -match '--no-history')"
+          # `--no-history` is NOT gated here. tools/chromium/sync.mjs asks
+          # `gclient help sync` itself, and it does it at the one moment when
+          # that question has an answer: after depot_tools has been installed.
+          # Calling `gclient` from this step cannot work - depot_tools does not
+          # exist yet, so it is not on PATH until the sync has produced it -
+          # and the resulting CommandNotFoundException is a terminating error
+          # that kills the step in about a second. It did exactly that to run
+          # 4, which reported nothing at all.
 
           # Three shapes, tried in order of how much they save. The reductions
           # are all documented; whether a given depot_tools build honours them
@@ -564,28 +572,46 @@ jobs:
           )
           $syncShape = 'failed'
           $syncExit = $null
-          for ($i = 0; $i -lt $attempts.Count; $i += 1) {
-            $attempt = $attempts[$i]
-            $log = "artifacts/logs/sync-$i.log"
-            Write-Host "sync attempt $($i + 1) of $($attempts.Count): $($attempt.label)"
-            node tools/chromium/sync.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --low-resource-experiment $attempt.args 2>&1 | Tee-Object -FilePath $log
-            $syncExit = $LASTEXITCODE
-            if ($syncExit -eq 0) {
-              $syncShape = $attempt.label
-              break
+          $log = 'artifacts/logs/sync-0.log'
+          try {
+            for ($i = 0; $i -lt $attempts.Count; $i += 1) {
+              $attempt = $attempts[$i]
+              $log = "artifacts/logs/sync-$i.log"
+              # An annotation, not just a log line: the runner's logs are
+              # not reachable from here, so this is how the attempt that is
+              # running becomes visible at all.
+              Write-Host "::notice title=Sync attempt $($i + 1) of $($attempts.Count)::$($attempt.label)"
+              node tools/chromium/sync.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --low-resource-experiment $attempt.args 2>&1 | Tee-Object -FilePath $log
+              $syncExit = $LASTEXITCODE
+              if ($syncExit -eq 0) {
+                $syncShape = $attempt.label
+                break
+              }
+              Publish-LogTail -Path $log -Title "sync attempt $($i + 1) failed" -Count 8
+              # A checkout that failed part-way cannot be topped up by a later
+              # sync, so the next attempt gets a clean tree instead of
+              # inheriting the damage.
+              $src = Join-Path $env:AURELIA_CHROMIUM_DEST 'src'
+              if (Test-Path $src) {
+                Write-Host '::notice title=Partial checkout discarded::the previous attempt left a src tree behind; it is removed so the next attempt starts clean'
+                & cmd.exe /c "rd /s /q `"$src`"" 2>$null
+              }
             }
-            Publish-LogTail -Path $log -Title "sync attempt $($i + 1) failed" -Count 12
-            # A shallow clone that failed cannot be topped up by a later
-            # normal sync, so the next attempt gets a clean tree instead of
-            # inheriting the damage.
-            if (Test-Path (Join-Path $env:AURELIA_CHROMIUM_DEST 'src/.git/shallow')) {
-              Write-Host '::notice title=Shallow clone discarded::the previous attempt left a shallow clone; it is removed so the next attempt starts clean'
-              & cmd.exe /c "rd /s /q `"$(Join-Path $env:AURELIA_CHROMIUM_DEST 'src')`"" 2>$null
-            }
+          } catch {
+            # A terminating error (a command that is not on PATH, a script
+            # that cannot start) leaves no exit code and no log tail unless
+            # it is caught. Publish both and rethrow: a silent step is worth
+            # less than a failed one.
+            Publish-LogTail -Path $log -Title 'sync attempt aborted' -Count 8
+            $text = ($_.Exception.Message -replace '%', '%25' -replace "`r", '' -replace "`n", ' ')
+            if ($text.Length -gt 480) { $text = $text.Substring(0, 480) }
+            Write-Host "::error title=Sync aborted::$text"
+            throw
+          } finally {
+            [System.IO.File]::WriteAllText(
+              (Join-Path (Get-Location) 'artifacts/hosted-constrained-sync.json'),
+              ("{`"shape`":`"$syncShape`",`"exitCode`":$(if ($syncExit -eq $null) { 'null' } else { $syncExit })}`n"))
           }
-          [System.IO.File]::WriteAllText(
-            (Join-Path (Get-Location) 'artifacts/hosted-constrained-sync.json'),
-            ("{`"shape`":`"$syncShape`",`"exitCode`":$(if ($syncExit -eq $null) { 'null' } else { $syncExit })}`n"))
           if ($syncExit -ne 0) { throw "the Chromium sync failed with exit code $syncExit" }
           Add-Content $env:GITHUB_STEP_SUMMARY "- sync shape that worked: $syncShape"
           $gclientPath = Join-Path $env:AURELIA_CHROMIUM_DEST '.gclient'
