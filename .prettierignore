@@ -14,3 +14,6 @@ packages/ui-lab/src/tokens.generated.css
 chromium/overlay/chrome/browser/resources/aurelia/design_tokens.css
 chromium/overlay/chrome/browser/ui/webui/aurelia/aurelia_version.h
 chromium/verification/pre-images.json
+
+# PowerShell scripts are linted by tools/ci/check-powershell.mjs, not formatted.
+*.ps1
