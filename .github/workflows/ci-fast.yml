@@ -1,0 +1,94 @@
+# Aurelia Browser - fast CI.
+#
+# Scope: everything that does NOT need a Chromium checkout. Formatting, linting,
+# types, unit tests, patch verification, supply-chain policy and secret scanning
+# all run here in a few minutes on a GitHub-hosted runner.
+#
+# Chromium compilation happens in chromium-heavy-build-windows.yml on a self-hosted
+# runner; it is not attempted here on purpose (see docs/BUILDING-CHROMIUM.md for
+# measured resource requirements).
+name: CI (fast)
+
+on:
+  push:
+    branches: [main, 'arena/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-fast-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: these jobs only read the repository.
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Format, lint, typecheck, test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  repository-checks:
+    name: Pin, patch set, policy and policy scans
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Fast repository checks (offline)
+        run: node tools/ci/fast-checks.mjs
+
+      - name: Verify the pin (tag and chrome/VERSION)
+        run: node tools/chromium/verify-pin.mjs
+
+      - name: Verify the patch set against the pinned Chromium revision
+        env:
+          # Read-only token: enough to read public upstream files, and nothing
+          # in this workflow can push, tag or publish.
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/chromium/cli.mjs verify-patches --online
+
+      - name: Report available Chromium updates (informational)
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/chromium/cli.mjs check-updates
