@@ -19,19 +19,20 @@ npm test                               # unit tests
 
 Useful commands:
 
-| Command                                               | Purpose                                              |
-| ----------------------------------------------------- | ---------------------------------------------------- |
-| `npm test`                                            | Unit tests (`vitest`)                                |
-| `npm run test:watch`                                  | Watch mode                                           |
-| `npm run format` / `format:check`                     | Prettier                                             |
-| `npm run lint`                                        | ESLint (flat config)                                 |
-| `npm run typecheck`                                   | TypeScript (no emit)                                 |
-| `node tools/design/generate-tokens.mjs`               | Regenerate design-token outputs                      |
-| `node tools/design/check-contrast.mjs`                | WCAG 2.1 AA check for every declared token pair      |
-| `node tools/chromium/build.mjs --dry-run`             | Print the full build pipeline without running it     |
-| `node tools/chromium/cli.mjs generate-version`        | Regenerate the compiled-in version header            |
-| `node tools/chromium/cli.mjs verify-patches --online` | Prove the patch still applies to the pinned revision |
-| `node tools/chromium/cli.mjs fork-delta --json`       | Measured fork delta                                  |
+| Command                                               | Purpose                                                 |
+| ----------------------------------------------------- | ------------------------------------------------------- |
+| `npm test`                                            | Unit tests (`vitest`)                                   |
+| `npm run test:watch`                                  | Watch mode                                              |
+| `npm run format` / `format:check`                     | Prettier                                                |
+| `npm run lint`                                        | ESLint (flat config)                                    |
+| `npm run typecheck`                                   | TypeScript (no emit)                                    |
+| `node tools/design/generate-tokens.mjs`               | Regenerate design-token outputs                         |
+| `node tools/design/check-contrast.mjs`                | WCAG 2.1 AA check for every declared token pair         |
+| `node tools/ci/check-builder.mjs`                     | Will this machine build Chromium? (read-only preflight) |
+| `node tools/chromium/build.mjs --dry-run`             | Print the full build pipeline without running it        |
+| `node tools/chromium/cli.mjs generate-version`        | Regenerate the compiled-in version header               |
+| `node tools/chromium/cli.mjs verify-patches --online` | Prove the patch still applies to the pinned revision    |
+| `node tools/chromium/cli.mjs fork-delta --json`       | Measured fork delta                                     |
 
 Editing rules that CI enforces:
 

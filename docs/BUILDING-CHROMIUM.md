@@ -15,6 +15,19 @@ laptop or a small CI runner to do it.
 If you only want to work on Aurelia's own WebUI/resources, start with
 [DEVELOPMENT.md](DEVELOPMENT.md) (harness + fast checks) instead.
 
+Check the machine before you sync anything - the checkout is the expensive
+part, and finding out at hour five that the disk is too small wastes a day:
+
+```bash
+node tools/ci/check-builder.mjs --dest <checkout-parent>
+node tools/ci/check-builder.mjs --dest <checkout-parent> --record artifacts/runner-capabilities.json
+```
+
+It only reads: cores, RAM, free space on the volume that will hold the
+checkout, and (on Windows) the Visual Studio C++ x64 toolchain. The
+heavy-build workflow runs the same script, so the verdict on the machine and
+the verdict in CI cannot disagree. This sandbox fails it on purpose.
+
 ## Measured and expected requirements
 
 | Resource  | Minimum                                                                   | Recommended | Notes                                                                                                            |

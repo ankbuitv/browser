@@ -12,14 +12,14 @@ Taken from `config/chromium_version.json` (`buildRequirements`) and
 `docs/BUILDING-CHROMIUM.md`, and enforced at runtime by the capability probe in
 `tools/ci/workflows/chromium-heavy-build-windows.yml`:
 
-| Requirement             | Minimum                                                              | Notes                                                                         |
-| ----------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Logical cores           | 8                                                                    | compile parallelism, linker memory                                            |
-| RAM                     | 32 GB                                                                | linking Chrome is the peak; lower values swap and crawl                       |
-| Free disk on one volume | 150 GB                                                               | Chromium source + dependencies + build output; the checkout is **persistent** |
-| Toolchain               | Visual Studio C++ x64 (VC.Tools.x86.x64), Windows SDK, Git, Python 3 | probe records what it found in `runner-capabilities.json`                     |
-| Node.js                 | 22.4+                                                                | the smoke test uses the global WebSocket                                      |
-| Wall clock              | hours, not minutes                                                   | a full sync is itself hours on a cold machine                                 |
+| Requirement             | Minimum                                                              | Notes                                                                            |
+| ----------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Logical cores           | 8                                                                    | compile parallelism, linker memory                                               |
+| RAM                     | 32 GB                                                                | linking Chrome is the peak; lower values swap and crawl                          |
+| Free disk on one volume | 150 GB                                                               | Chromium source + dependencies + build output; the checkout is **persistent**    |
+| Toolchain               | Visual Studio C++ x64 (VC.Tools.x86.x64), Windows SDK, Git, Python 3 | `tools/ci/check-builder.mjs` records what it found in `runner-capabilities.json` |
+| Node.js                 | 22.4+                                                                | the smoke test uses the global WebSocket                                         |
+| Wall clock              | hours, not minutes                                                   | a full sync is itself hours on a cold machine                                    |
 
 These are **documented minimums for the first build**, not measurements. The
 first successful heavy build replaces them with measured numbers (the workflow
@@ -52,11 +52,11 @@ does not give a Chromium fork what it needs.
 
 ## Verdict
 
-| Option                          | Verdict                                                                                                                                                                                                                                  |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GitHub-hosted `windows-latest`  | **Not used.** Ephemeral, no persistent checkout, quota-burning; requirements must be re-checked against GitHub's documentation before anyone revisits this.                                                                              |
-| Larger hosted runners           | Would address size, **not** persistence or quota. Not attempted.                                                                                                                                                                         |
-| Self-hosted Windows x64 builder | **Required.** Labels `[self-hosted, windows, x64, aurelia-chromium]`; the workflow refuses to start on a machine below the minimums, so a misprovisioned runner fails in seconds with a precise message instead of failing in hour five. |
+| Option                          | Verdict                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GitHub-hosted `windows-latest`  | **Not used.** Ephemeral, no persistent checkout, quota-burning; requirements must be re-checked against GitHub's documentation before anyone revisits this.                                                                                                                                                                                      |
+| Larger hosted runners           | Would address size, **not** persistence or quota. Not attempted.                                                                                                                                                                                                                                                                                 |
+| Self-hosted Windows x64 builder | **Required.** Labels `[self-hosted, windows, x64, aurelia-chromium]`; `tools/ci/check-builder.mjs` refuses to start on a machine below the minimums, so a misprovisioned runner fails in seconds with a precise message instead of failing in hour five. Run it before provisioning: `node tools/ci/check-builder.mjs --dest <checkout-parent>`. |
 
 ## The same pipeline without GitHub
 
@@ -69,9 +69,10 @@ which matters while the workflow definitions cannot be deployed (issue #5).
 - `runs-on: [self-hosted, windows, x64, aurelia-chromium]` — a hosted runner
   cannot pick the job up. A test asserts the workflow never names a hosted
   label.
-- The first step probes cores, RAM, free disk on the volume holding
-  `AURELIA_CHROMIUM_DEST`, and the Visual Studio C++ toolchain; it throws with
-  a list of what is missing. The probe output is uploaded with the build.
+- The first step runs `tools/ci/check-builder.mjs`, which probes cores, RAM,
+  free disk on the volume holding `AURELIA_CHROMIUM_DEST`, and the Visual
+  Studio C++ toolchain; it fails with a list of what is missing. The recorded
+  capabilities are uploaded with the build and recorded in the manifest.
 - `sync.mjs` has its own 150 GB preflight and refuses to sync without it.
 
 ## Re-checking this assessment
