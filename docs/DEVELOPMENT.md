@@ -32,6 +32,7 @@ Useful commands:
 | `node tools/chromium/build.mjs --dry-run`             | Print the full build pipeline without running it        |
 | `node tools/chromium/cli.mjs generate-version`        | Regenerate the compiled-in version header               |
 | `node tools/chromium/cli.mjs verify-patches --online` | Prove the patch still applies to the pinned revision    |
+| `node tools/chromium/verify-pin.mjs`                  | Re-check the pin against the upstream tag and VERSION   |
 | `node tools/chromium/cli.mjs fork-delta --json`       | Measured fork delta                                     |
 
 Editing rules that CI enforces:

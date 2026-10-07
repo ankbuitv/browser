@@ -55,13 +55,32 @@ verified by reading `chrome/VERSION` at the exact commit: `MAJOR=155 MINOR=0
 BUILD=8059 PATCH=40`.
 
 Pin history is kept in `pinHistory` in the config file. The first scaffolding
-pin (`155.0.8059.73`) assumed a GitHub release tag that does not exist — the
-`github.com/chromium/chromium` mirror exposes **no tags at all** and only its
-main branch, while release branches live on `chromium.googlesource.com` as
-`refs/branch-heads/<build>`. That commit also sits _later_ on the release branch
-than the promoted stable build, which is the signature of an unpromoted build.
-Both facts are recorded rather than quietly corrected: pin evidence must be
-re-checkable, and "the highest number in the list" is not evidence of a channel.
+pin (`155.0.8059.73`) was chosen as "the newest version tag", which is not
+evidence of a channel: that revision sits _later_ on `branch-heads/8059` than
+the promoted stable build, and chromiumdash never reported it as stable for a
+target platform. It is the signature of an unpromoted PGO roll, so it was the
+wrong baseline.
+
+The mirror's mechanics were also checked rather than assumed, and an earlier
+note in this repository was wrong and is corrected here: the
+`github.com/chromium/chromium` mirror **does** expose release tags
+(`refs/tags/<version>` — `refs/tags/155.0.8059.40` resolves to the pinned commit
+`cfaadc5a…`), but it has **no GitHub Releases**, and its release branches are not
+pushed as `branch-heads/*` refs. Chromium's own release branches live on
+`chromium.googlesource.com` as `refs/branch-heads/8059`. Both facts are recorded
+rather than quietly corrected: pin evidence must be re-checkable.
+
+### Re-checking the pin
+
+One command re-checks the evidence above without trusting this document:
+
+```bash
+node tools/chromium/verify-pin.mjs
+```
+
+It resolves `refs/tags/<version>` on the mirror and reads `chrome/VERSION` at the
+pinned revision, failing if either disagrees with `config/chromium_version.json`.
+It runs in fast CI on every pull request.
 
 ### Toolchain pin
 

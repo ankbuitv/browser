@@ -77,6 +77,9 @@ jobs:
       - name: Fast repository checks (offline)
         run: node tools/ci/fast-checks.mjs
 
+      - name: Verify the pin (tag and chrome/VERSION)
+        run: node tools/chromium/verify-pin.mjs
+
       - name: Verify the patch set against the pinned Chromium revision
         env:
           # Read-only token: enough to read public upstream files, and nothing
