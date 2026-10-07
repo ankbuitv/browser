@@ -1,0 +1,96 @@
+{
+  "patch": "0001-aurelia-webui-and-resources.patch",
+  "title": "Register the chrome://aurelia WebUI and its resources",
+  "description": "Adds Aurelia's own WebUI surface to a pinned Chromium tree. All new code lives in chromium/overlay/; this patch only wires it into existing upstream build files, the WebUI config registry and the URL constant list.",
+  "patchSetVersion": "0.1.0",
+  "baseRevision": "cfaadc5a132d78e1828635aa8405a499f3e14864",
+  "baseVersion": "155.0.8059.40",
+  "sha256": "155e1a0d7da09148d0a064da1ef34590ebb49335ac2a2ca67f6c11a8f21d2f05",
+  "generatedBy": "tools/chromium/generate-patch.mjs",
+  "summary": {
+    "filesModified": 6,
+    "linesAdded": 7,
+    "linesRemoved": 0,
+    "hunks": 7
+  },
+  "files": [
+    {
+      "path": "chrome/browser/BUILD.gn",
+      "added": 1,
+      "removed": 0,
+      "hunks": 1,
+      "component": "browser",
+      "reason": "Link the Aurelia WebUI controller into //chrome/browser.",
+      "rebaseDifficulty": "trivial",
+      "couldBecomeOverlay": false,
+      "upstreamable": "no (Aurelia-specific)",
+      "preImageSha256": "5c9a66b731954d1d28c7f630071880f0a879bfef924338362004b9ad19f4444b",
+      "postImageSha256": "0228944bc89db58c03df718f6dfcc6c4366b2ad1a6a244c99dd03e1182a2f278"
+    },
+    {
+      "path": "chrome/browser/resources/BUILD.gn",
+      "added": 1,
+      "removed": 0,
+      "hunks": 1,
+      "component": "resources",
+      "reason": "Include the Aurelia WebUI resources pak in the browser resources group.",
+      "rebaseDifficulty": "trivial",
+      "couldBecomeOverlay": false,
+      "upstreamable": "no (Aurelia-specific)",
+      "preImageSha256": "10fa6d5828ed4254f70df74c5c6b6fa75ff5a35f4515379b69e0f27c98361df9",
+      "postImageSha256": "0151d3b885316f81da046a4a2a698b3ca7e963ad5d49351469b6d3e5b3a15ee1"
+    },
+    {
+      "path": "chrome/browser/ui/BUILD.gn",
+      "added": 1,
+      "removed": 0,
+      "hunks": 1,
+      "component": "browser-ui",
+      "reason": "Link the Aurelia WebUI controller into //chrome/browser/ui.",
+      "rebaseDifficulty": "trivial",
+      "couldBecomeOverlay": false,
+      "upstreamable": "no (Aurelia-specific)",
+      "preImageSha256": "b952b1fd222b1da3cd6e28a363738b6a6a971f6ca5ef1d61beb976a1d3778fe0",
+      "postImageSha256": "aea892d3a38f90c5170a8ddf34081310584a319c9744ea5cfb3061ced1eef107"
+    },
+    {
+      "path": "chrome/browser/ui/webui/BUILD.gn",
+      "added": 1,
+      "removed": 0,
+      "hunks": 1,
+      "component": "webui",
+      "reason": "Add the Aurelia WebUI controller to the desktop WebUI dependency set.",
+      "rebaseDifficulty": "trivial",
+      "couldBecomeOverlay": false,
+      "upstreamable": "no (Aurelia-specific)",
+      "preImageSha256": "9bff25e53a6d2ce1b364c7baf03225915f5c9d02bbd22ca01e5cec96b49e994a",
+      "postImageSha256": "2c1cb0fe018e2ec3a5ec5348d38df3101f37ca0559525975a6ed4892c77b0495"
+    },
+    {
+      "path": "chrome/browser/ui/webui/chrome_web_ui_configs.cc",
+      "added": 2,
+      "removed": 0,
+      "hunks": 2,
+      "component": "webui",
+      "reason": "Register the chrome://aurelia WebUI config and include its header.",
+      "rebaseDifficulty": "trivial",
+      "couldBecomeOverlay": false,
+      "upstreamable": "no (Aurelia-specific)",
+      "preImageSha256": "e96a1eadc4595835fea0148b14edcc2125f5eacd3b439946124f29c029b8d675",
+      "postImageSha256": "7dd84021c22c75d5fd269d57b8741a200a6c6cb9417e4b047e3e92b56906e106"
+    },
+    {
+      "path": "chrome/common/webui_url_constants.h",
+      "added": 1,
+      "removed": 0,
+      "hunks": 1,
+      "component": "webui-url-constants",
+      "reason": "Declare the chrome://aurelia host constant next to the other WebUI hosts.",
+      "rebaseDifficulty": "trivial",
+      "couldBecomeOverlay": false,
+      "upstreamable": "no (Aurelia-specific)",
+      "preImageSha256": "912d6325c0d0d5c6e9f287962a5629b8ac4338bdbe5f168d92aab86f3534616e",
+      "postImageSha256": "1913442b50da84319690a64b696cae681d06525473955a75149d11c75b0fd449"
+    }
+  ]
+}

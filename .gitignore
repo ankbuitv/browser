@@ -1,0 +1,71 @@
+# Node / TypeScript
+node_modules/
+*.tsbuildinfo
+.vite/
+coverage/
+
+# Aurelia build outputs (anchored to the repository root: nested directories
+# with these names can be legitimate source paths)
+/out/
+/dist/
+/build/
+/artifacts/
+
+# ---------------------------------------------------------------
+# Chromium source tree
+# ---------------------------------------------------------------
+# Chromium is NEVER vendored into this repository. `tools/chromium/sync.mjs`
+# checks out a pinned revision wherever --dest points (normally outside the
+# repository). These rules only catch an accidental in-tree checkout.
+#
+# IMPORTANT: these patterns are anchored to the repository root. An unanchored
+# `chromium/` would also ignore this project's own `chromium/` overlay and
+# `tools/chromium/` tooling - see the repository test that guards this.
+/chromium-checkout/
+/chromium-src/
+/depot_tools/
+*.crx
+
+# Patch application scratch space (used by tools/chromium/patch.mjs)
+.patch-work/
+
+# ---------------------------------------------------------------------------
+# Secrets: never commit anything below. These patterns are a safety net only;
+# they do not replace review. See SECURITY.md and .github/workflows/ci-fast.yml.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.key
+!**/testdata/**/*.key
+*.cer
+*.crt
+!**/testdata/**/*.crt
+secrets/
+*.secrets.json
+
+# Windows / installer artifacts
+*.msi
+*.msix
+*.nupkg
+*.exe
+!tools/**/*.exe
+*.dll
+!tools/**/*.dll
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*~
+
+# Logs
+*.log
+npm-debug.log*

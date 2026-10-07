@@ -1,0 +1,90 @@
+{
+  "$comment": [
+    "Aurelia Browser - Chromium pin configuration (single source of truth).",
+    "Never edit the revision fields by hand after a release: the update bot proposes",
+    "a change to this file, and a maintainer merges it after the patch set has been",
+    "verified against the candidate revision (docs/CHROMIUM-UPSTREAM.md).",
+    "Do not replace `revision` with a moving ref such as `main` or `latest`."
+  ],
+  "schemaVersion": 1,
+  "product": {
+    "codename": "Aurelia",
+    "nameIsCodenameOnly": true,
+    "namingReview": "docs/NAMING.md",
+    "version": "0.1.0",
+    "channel": "development",
+    "license": "MPL-2.0"
+  },
+  "chromium": {
+    "upstreamRepository": "https://github.com/chromium/chromium",
+    "upstreamRef": "branch-heads/8059",
+    "version": "155.0.8059.40",
+    "milestone": 155,
+    "channel": "stable",
+    "revision": "cfaadc5a132d78e1828635aa8405a499f3e14864",
+    "revisionKind": "release-branch-commit",
+    "pinnedAt": "2026-10-07",
+    "pinnedBy": "@ankbuitv",
+    "pinRationale": "Current stable-channel build on Windows x64 - the first target platform - as published by chromiumdash, so the baseline is a promoted, security-patched release instead of an unpromoted branch head.",
+    "pinEvidence": [
+      "https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Windows&num=3 -> version 155.0.8059.40, chromium hash cfaadc5a132d78e1828635aa8405a499f3e14864",
+      "https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Linux&num=1 -> milestone 155 on stable, cross-checked 2026-10-07",
+      "gh api repos/chromium/chromium/contents/chrome/VERSION?ref=cfaadc5a132d78e1828635aa8405a499f3e14864 -> MAJOR=155 MINOR=0 BUILD=8059 PATCH=40",
+      "https://github.com/chromium/chromium/commit/cfaadc5a132d78e1828635aa8405a499f3e14864 (Incrementing VERSION to 155.0.8059.40, 2026-10-06T00:16:18Z)",
+      "git ls-remote --tags https://github.com/chromium/chromium.git refs/tags/155.0.8059.40 -> cfaadc5a132d78e1828635aa8405a499f3e14864 (the GitHub mirror does expose release tags; verified 2026-10-07)"
+    ],
+    "revisionVerifiedBy": "tools/chromium/cli.mjs verify-patches --online (pre-image match)",
+    "upstreamRefNote": "The github.com/chromium/chromium mirror exposes release tags (refs/tags/<version>), and refs/tags/155.0.8059.40 resolves to the pinned commit cfaadc5a132d78e1828635aa8405a499f3e14864. It has no GitHub Releases objects, so the tags - not releases - are the mirror's usable marker. Chromium's own release branches are published on chromium.googlesource.com as refs/branch-heads/8059. The revision is recorded explicitly (never as a moving ref) and is additionally verified by reading chrome/VERSION at that revision and by matching pre-image digests.",
+    "pinHistory": [
+      {
+        "version": "155.0.8059.73",
+        "revision": "6dfaefa462dbbed162e67eb277914f6b1afa36ac",
+        "note": "Initial scaffolding pin. The revision is a real, tagged release-branch build (refs/tags/155.0.8059.73), but it sits later on branch-heads/8059 than the build chromiumdash reported as stable for the first target platform - it is an unpromoted PGO profile roll, not a promoted stable release, so it was the wrong baseline. Re-pinned to 155.0.8059.40; this entry is kept so the correction is auditable. An earlier note in this field claimed the mirror exposes no tags at all; that was wrong and was corrected after checking refs/tags directly."
+      }
+    ]
+  },
+  "patchSet": {
+    "version": "0.1.0",
+    "directory": "chromium/patches",
+    "overlayDirectory": "chromium/overlay",
+    "verificationDirectory": "chromium/verification",
+    "baseRevision": "cfaadc5a132d78e1828635aa8405a499f3e14864",
+    "targetsRepositoryTree": true
+  },
+  "updatePolicy": {
+    "automaticMerge": false,
+    "allowMovingRefs": false,
+    "securityChannelPriority": true,
+    "procedure": "docs/CHROMIUM-UPSTREAM.md#update-procedure",
+    "botWorkflow": ".github/workflows/chromium-update-watch.yml",
+    "rules": [
+      "Never merge a Chromium update directly into main.",
+      "Detect -> open an issue with a candidate revision and the patch verification report -> verify patch set -> heavy build + smoke test -> maintainer merge.",
+      "Security releases are prioritised but still verified before merge.",
+      "A pin change requires a matching `git apply` verification against the new revision."
+    ]
+  },
+  "toolchain": {
+    "depotTools": {
+      "source": "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
+      "revision": "1e43ae345913614898e3d6a1ef2680a0d47574e9",
+      "revisionStatus": "pinned",
+      "why": "depot_tools has no GitHub mirror, so the revision was read from the canonical gitiles endpoint and pinned like any other source dependency. Update it deliberately, together with Chromium pin updates, and let the heavy build prove the combination works.",
+      "recordWith": "node tools/chromium/sync.mjs --record-depot-tools <sha>",
+      "trackedBy": "issue #4",
+      "pinnedAt": "2026-10-07",
+      "pinnedBy": "@ankbuitv",
+      "pinEvidence": "https://chromium.googlesource.com/chromium/tools/depot_tools/+/refs/heads/main?format=JSON -> commit 1e43ae345913614898e3d6a1ef2680a0d47574e9 (2026-10-07)"
+    }
+  },
+  "buildRequirements": {
+    "documentedIn": "docs/BUILDING-CHROMIUM.md",
+    "referenceBuilder": {
+      "cpuCores": 8,
+      "ramGb": 32,
+      "freeDiskGb": 150,
+      "notes": "Measured requirements are recorded once real builds run; see docs/BUILDING-CHROMIUM.md."
+    },
+    "sandboxNote": "The development sandbox used for scaffolding has ~20 GB free disk and cannot hold or build a Chromium checkout. Only lightweight upstream file verification runs there."
+  }
+}

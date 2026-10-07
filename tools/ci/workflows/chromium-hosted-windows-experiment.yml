@@ -1,0 +1,414 @@
+# Aurelia Browser - HOSTED Windows experiment (measurement first, build second).
+#
+# This workflow is an EXPERIMENT, not the production build path. The production
+# heavy build is chromium-heavy-build-windows.yml and requires the self-hosted
+# [self-hosted, windows, x64, aurelia-chromium] runner. This one exists to
+# answer one question with evidence:
+#
+#   Can a standard GitHub-hosted Windows runner realistically attempt this
+#   build at all?
+#
+# Order of operations (deliberate):
+#   1. measure the runner (image, OS, CPU, RAM, disks, toolchain, SDKs);
+#   2. classify against the documented minimums in
+#      config/chromium_version.json (8 cores / 32 GB RAM / 150 GB free disk);
+#   3. if - and only if - the machine meets them, attempt ONE full build.
+#
+# The minimums are NOT lowered to make this run. A RESOURCE LIMIT verdict
+# before any Chromium sync is a useful, cheap result; syncing tens of gigabytes
+# and compiling for hours on a machine that cannot finish would be neither.
+#
+# No secrets, no signing, no release: the artifact is an UNSIGNED development
+# build and is never described as production-ready.
+
+name: Chromium hosted Windows experiment
+
+on:
+  # Manual only, on purpose: this experiment burns hosted-runner minutes, so it
+  # starts when a maintainer decides it should (Actions UI, or a credential with
+  # `actions: write`). GitHub only offers "Run workflow" for a workflow whose
+  # file exists on the default branch, and the automation credential cannot
+  # create dispatch events (403, see docs/CI-SECURITY.md) - so this becomes
+  # runnable for the owner once the workflow reaches `main`.
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: What to do after the preflight measurement.
+        required: true
+        default: preflight-only
+        type: choice
+        options:
+          - preflight-only
+          - preflight-and-build
+      reason:
+        description: Why this experiment is being run (recorded in the summary).
+        required: false
+        default: measure-hosted-runner-capability
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chromium-hosted-windows-experiment
+  cancel-in-progress: false
+
+jobs:
+  hosted-experiment:
+    name: Hosted Windows preflight (and at most one build attempt)
+    # windows-latest is the standard hosted image. The exact image and version
+    # are recorded by the preflight step, not assumed here.
+    runs-on: windows-latest
+    timeout-minutes: 360
+    env:
+      # Resolved once here so every step and every `if:` agrees.
+      #  * `runner` is NOT available in a job-level env block (GitHub rejects
+      #    the whole workflow with "Unrecognized named-value: 'runner'"), so
+      #    the work directory is prepared by the first step from RUNNER_TEMP;
+      #  * `github.event.inputs` is used instead of the `inputs` context so the
+      #    fallbacks also hold if this workflow is ever started by a non-dispatch
+      #    event (the `inputs` context is only populated for workflow_dispatch).
+      EXPERIMENT_MODE: ${{ github.event.inputs.mode || 'preflight-only' }}
+      EXPERIMENT_REASON: ${{ github.event.inputs.reason || 'unspecified' }}
+    steps:
+      - name: Check out Aurelia
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Node.js (tooling only; never a browser runtime dependency)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+
+      - name: Prepare the Chromium work directory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Hosted runners have a 6-hour job limit; the preflight decides whether
+          # an attempt is even plausible, so this ceiling only bounds a doomed run.
+          $dest = Join-Path $env:RUNNER_TEMP 'aurelia-chromium'
+          "AURELIA_CHROMIUM_DEST=$dest" | Add-Content $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
+          Write-Host "work directory: $dest"
+          Write-Host "mode: $env:EXPERIMENT_MODE"
+          Write-Host "reason: $env:EXPERIMENT_REASON"
+
+      - name: Measure the runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Native tools write progress and warnings to stderr, and whether
+          # that becomes a terminating error under $ErrorActionPreference='Stop'
+          # depends on the PowerShell version. Disable the interaction and check
+          # exit codes explicitly. (The first two hosted runs actually died from
+          # a Windows-incompatible entry-point check inside the Node tools, not
+          # from stderr: see tools/lib/entry.mjs.)
+          $PSNativeCommandUseErrorActionPreference = $false
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+
+          $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+          $os = Get-CimInstance Win32_OperatingSystem
+          $cs = Get-CimInstance Win32_ComputerSystem
+
+          $volumes = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Free -ne $null } | ForEach-Object {
+            [ordered]@{
+              name  = $_.Name
+              root  = $_.Root
+              usedGb  = [math]::Round($_.Used / 1GB, 1)
+              freeGb  = [math]::Round($_.Free / 1GB, 1)
+            }
+          }
+
+          $pythonVersion = $null
+          if (Get-Command python -ErrorAction SilentlyContinue) {
+            $pythonVersion = (& python --version 2>&1 | Out-String).Trim()
+          } elseif (Get-Command py -ErrorAction SilentlyContinue) {
+            $pythonVersion = (& py -3 --version 2>&1 | Out-String).Trim()
+          }
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsPath = $null
+          $msvcToolsets = @()
+          if (Test-Path $vswhere) {
+            $vsPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Out-String).Trim()
+            if ([string]::IsNullOrWhiteSpace($vsPath)) { $vsPath = $null }
+            $msvcToolsets = @(
+              & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC\Tools\MSVC\**\cl.exe' |
+                ForEach-Object {
+                  if ($_ -match 'VC\\Tools\\MSVC\\([^\\]+)\\') { $Matches[1] }
+                } |
+                Sort-Object -Unique
+            )
+          }
+
+          $sdkInclude = 'C:\Program Files (x86)\Windows Kits\10\Include'
+          $windowsSdks = if (Test-Path $sdkInclude) { @(Get-ChildItem $sdkInclude -Directory | Select-Object -ExpandProperty Name) } else { @() }
+
+          $report = [ordered]@{
+            experiment      = 'hosted-windows-preflight'
+            reason          = $env:EXPERIMENT_REASON
+            mode            = $env:EXPERIMENT_MODE
+            runner          = [ordered]@{
+              name        = $env:RUNNER_NAME
+              os          = $env:RUNNER_OS
+              arch        = $env:RUNNER_ARCH
+              imageOs     = $env:ImageOS
+              imageVersion= $env:ImageVersion
+              labels      = 'windows-latest'
+            }
+            windows         = [ordered]@{
+              caption     = $os.Caption
+              version     = $os.Version
+              buildNumber = $os.BuildNumber
+              architecture= $os.OSArchitecture
+            }
+            cpu             = [ordered]@{
+              model       = $cpu.Name
+              physicalCores = $cpu.NumberOfCores
+              logicalCores  = $cpu.NumberOfLogicalProcessors
+            }
+            memory          = [ordered]@{
+              totalGb     = [math]::Round($cs.TotalPhysicalMemory / 1GB, 1)
+              availableGb = [math]::Round($os.FreePhysicalMemory * 1KB / 1GB, 1)
+            }
+            diskVolumes     = $volumes
+            tooling         = [ordered]@{
+              node    = (& node --version)
+              python  = $pythonVersion
+              git     = ((& git --version) -replace '^git version ', '')
+              visualStudio = $vsPath
+              msvcToolsets = $msvcToolsets
+              windowsSdks  = $windowsSdks
+            }
+            destination     = $env:AURELIA_CHROMIUM_DEST
+            measuredAt      = (Get-Date).ToUniversalTime().ToString('o')
+          }
+
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) 'artifacts\hosted-preflight.json'),
+            ($report | ConvertTo-Json -Depth 6) + "`n"
+          )
+
+          Write-Host ($report | ConvertTo-Json -Depth 6)
+
+          $disks = ($volumes | ForEach-Object { "$($_.name)=$($_.freeGb)GB free" }) -join ', '
+          Write-Host "::notice title=Hosted runner measurement::os=$($report.runner.imageOs) image=$($report.runner.imageVersion) cpu=$($report.cpu.model) x$($report.cpu.logicalCores) ram=$($report.memory.totalGb)GB (available $($report.memory.availableGb)GB) disks=[$disks]"
+
+      - name: Classify against the documented minimums (no lowering of the bar)
+        id: gate
+        shell: pwsh
+        run: |
+          # Native tools (node, gn, ninja) write progress and warnings to
+          # stderr. Whether $ErrorActionPreference='Stop' turns that into a
+          # terminating error depends on the PowerShell version, so the
+          # interaction is disabled and exit codes are checked by hand instead.
+          $PSNativeCommandUseErrorActionPreference = $false
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path "$env:AURELIA_CHROMIUM_DEST" | Out-Null
+          # The repository's own check decides, so the verdict here and the
+          # verdict before provisioning a real builder cannot disagree.
+          node tools/ci/check-builder.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --record artifacts\runner-capabilities.json --no-fail
+          if ($LASTEXITCODE -ne 0) { throw "check-builder failed with exit code $LASTEXITCODE" }
+          $capabilities = Get-Content artifacts\runner-capabilities.json -Raw | ConvertFrom-Json
+
+          $problems = @($capabilities.problems)
+          $summary = @(
+            '### Hosted Windows experiment - preflight',
+            '',
+            ("- runner image: ``$($capabilities.platform)`` (``$($capabilities.platformRelease)``)"),
+            ("- cpu: $($capabilities.cpuModel) - $($capabilities.cpuCores) logical core(s)"),
+            ("- ram: $($capabilities.ramGb) GB"),
+            ("- free disk (best volume): $($capabilities.freeDiskGb) GB"),
+            ("- visual studio: $($capabilities.visualStudio)"),
+            ("- required: $($capabilities.requirements.cpuCores) cores / $($capabilities.requirements.ramGb) GB / $($capabilities.requirements.freeDiskGb) GB")
+          )
+          $summary | Add-Content $env:GITHUB_STEP_SUMMARY
+
+          if ($problems.Count -gt 0) {
+            Add-Content $env:GITHUB_STEP_SUMMARY ''
+            Add-Content $env:GITHUB_STEP_SUMMARY '**Classification: RESOURCE LIMIT**'
+            Add-Content $env:GITHUB_STEP_SUMMARY ''
+            Add-Content $env:GITHUB_STEP_SUMMARY 'Stopped before any Chromium sync - a full sync and compile on this machine would burn hours and fail.'
+            foreach ($problem in $problems) { Write-Host "RESOURCE LIMIT: $problem" }
+            "sufficient=false" | Add-Content $env:GITHUB_OUTPUT
+            "problems=$($problems -join '; ')" | Add-Content $env:GITHUB_OUTPUT
+          } else {
+            Add-Content $env:GITHUB_STEP_SUMMARY ''
+            Add-Content $env:GITHUB_STEP_SUMMARY '**Classification: RESOURCES SUFFICIENT** - proceeding is allowed'
+            "sufficient=true" | Add-Content $env:GITHUB_OUTPUT
+          }
+
+      - name: Stop cleanly when only the preflight was requested
+        if: always() && steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-only'
+        shell: pwsh
+        run: |
+          Add-Content $env:GITHUB_STEP_SUMMARY ''
+          Add-Content $env:GITHUB_STEP_SUMMARY 'Preflight-only run: no build attempted (dispatch again with `preflight-and-build` to attempt one).'
+          Write-Host 'preflight-only: stopping before sync'
+
+      - name: Fail as RESOURCE LIMIT when the machine is too small
+        if: always() && steps.gate.outputs.sufficient == 'false'
+        shell: pwsh
+        env:
+          GATE_PROBLEMS: ${{ steps.gate.outputs.problems }}
+        run: |
+          Write-Host "::error title=RESOURCE LIMIT::$env:GATE_PROBLEMS"
+          Write-Host 'RESOURCE LIMIT: this runner does not meet the documented minimums; the experiment stopped before syncing Chromium.'
+          exit 1
+
+      - name: Sync the pinned Chromium checkout
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
+        shell: pwsh
+        run: |
+          # Native stderr must not be fatal here (see "Measure the runner").
+          $PSNativeCommandUseErrorActionPreference = $false
+          Add-Content $env:GITHUB_STEP_SUMMARY ''
+          Add-Content $env:GITHUB_STEP_SUMMARY '**Attempting one controlled build** (experiment, unsigned development artifact).'
+          node tools/chromium/sync.mjs --dest "$env:AURELIA_CHROMIUM_DEST"
+          if ($LASTEXITCODE -ne 0) { throw 'the Chromium sync failed' }
+
+      - name: Verify the patch set against the pristine checkout
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
+        shell: pwsh
+        run: |
+          # Native stderr must not be fatal here (see "Measure the runner").
+          $PSNativeCommandUseErrorActionPreference = $false
+          node tools/chromium/cli.mjs verify-patches --checkout "$env:AURELIA_CHROMIUM_DEST\src"
+          if ($LASTEXITCODE -ne 0) { throw 'the patch set did not verify against the pinned revision' }
+
+      - name: Install the Aurelia overlay and apply the patch set
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
+        shell: pwsh
+        run: |
+          # Native stderr must not be fatal here (see "Measure the runner").
+          $PSNativeCommandUseErrorActionPreference = $false
+          node tools/chromium/install-overlay.mjs --checkout "$env:AURELIA_CHROMIUM_DEST\src"
+          if ($LASTEXITCODE -ne 0) { throw 'the overlay and patch series did not apply' }
+
+      - name: Verify the fork delta budget
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
+        shell: pwsh
+        run: |
+          # Native stderr must not be fatal here (see "Measure the runner").
+          $PSNativeCommandUseErrorActionPreference = $false
+          node tools/chromium/cli.mjs fork-delta --check
+          if ($LASTEXITCODE -ne 0) { throw 'the fork delta exceeded its reviewed budget' }
+
+      - name: Validate the reviewed GN arguments
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
+        shell: pwsh
+        run: |
+          # Native stderr must not be fatal here (see "Measure the runner").
+          $PSNativeCommandUseErrorActionPreference = $false
+          node tools/chromium/gn-args.mjs config/gn/win-x64-dev.gn
+          if ($LASTEXITCODE -ne 0) { throw 'the reviewed GN arguments failed policy validation' }
+
+      - name: gn gen (development Release, reviewed arguments)
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
+        shell: pwsh
+        working-directory: ${{ runner.temp }}/aurelia-chromium/src
+        run: |
+          # Native stderr must not be fatal here (see "Measure the runner").
+          $PSNativeCommandUseErrorActionPreference = $false
+          $env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
+          $gnArgs = (node "$env:GITHUB_WORKSPACE\tools\chromium\gn-args.mjs" --print "$env:GITHUB_WORKSPACE\config\gn\win-x64-dev.gn")
+          & gn gen out\Release "--args=$gnArgs" 2>&1 | Tee-Object -FilePath "$env:GITHUB_WORKSPACE\artifacts\gn-gen.log"
+          if ($LASTEXITCODE -ne 0) { throw "gn gen failed with exit code $LASTEXITCODE" }
+
+      - name: autoninja chrome
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
+        shell: pwsh
+        working-directory: ${{ runner.temp }}/aurelia-chromium/src
+        run: |
+          # Native stderr must not be fatal here (see "Measure the runner").
+          $PSNativeCommandUseErrorActionPreference = $false
+          $env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
+          $env:NINJA_SUMMARIZE_BUILD = '1'
+          & autoninja -C out\Release chrome 2>&1 | Tee-Object -FilePath "$env:GITHUB_WORKSPACE\artifacts\autoninja.log"
+          if ($LASTEXITCODE -ne 0) { throw "autoninja failed with exit code $LASTEXITCODE" }
+
+      - name: Validate the effective arguments the build actually used
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
+        shell: pwsh
+        run: |
+          # Native stderr must not be fatal here (see "Measure the runner").
+          $PSNativeCommandUseErrorActionPreference = $false
+          node tools/chromium/gn-args.mjs "$env:AURELIA_CHROMIUM_DEST\src\out\Release\args.gn"
+          if ($LASTEXITCODE -ne 0) { throw 'the effective gn args failed policy validation' }
+
+      - name: Stage the complete runtime directory
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
+        shell: pwsh
+        run: |
+          # Native stderr must not be fatal here (see "Measure the runner").
+          $PSNativeCommandUseErrorActionPreference = $false
+          node tools/chromium/stage-runtime.mjs --out "$env:AURELIA_CHROMIUM_DEST\src\out\Release" --dest "$env:AURELIA_CHROMIUM_DEST\artifacts\staged" --aurelia-revision "${{ github.sha }}" --gn-args "$env:AURELIA_CHROMIUM_DEST\src\out\Release\args.gn" --runner-capabilities artifacts\runner-capabilities.json
+          if ($LASTEXITCODE -ne 0) { throw 'staging failed' }
+
+      - name: Smoke test the staged browser (sandboxed; no security-weakening flags)
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
+        shell: pwsh
+        run: |
+          # Native stderr must not be fatal here (see "Measure the runner").
+          $PSNativeCommandUseErrorActionPreference = $false
+          node tools/chromium/smoke-test.mjs --binary "$env:AURELIA_CHROMIUM_DEST\artifacts\staged\chrome.exe" --report "$env:AURELIA_CHROMIUM_DEST\artifacts\smoke-test.json"
+          if ($LASTEXITCODE -ne 0) { throw 'the smoke test failed; the experiment stops here' }
+          Copy-Item "$env:AURELIA_CHROMIUM_DEST\artifacts\smoke-test.json" artifacts\
+
+      - name: Record the smoke-test result in the build manifest
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
+        shell: pwsh
+        run: |
+          # Native stderr must not be fatal here (see "Measure the runner").
+          $PSNativeCommandUseErrorActionPreference = $false
+          node tools/chromium/stage-runtime.mjs --dest "$env:AURELIA_CHROMIUM_DEST\artifacts\staged" --record-smoke-test "$env:AURELIA_CHROMIUM_DEST\artifacts\smoke-test.json"
+          if ($LASTEXITCODE -ne 0) { throw 'the smoke-test result could not be recorded' }
+
+      - name: Package the complete runtime directory (never just chrome.exe)
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
+        shell: pwsh
+        run: |
+          $staging = "$env:AURELIA_CHROMIUM_DEST\artifacts\staged"
+          $manifest = Get-Content "$staging\build-manifest.json" -Raw | ConvertFrom-Json
+          $artifact = $manifest.artifact
+          $zip = Join-Path (Get-Location) "artifacts\$artifact"
+          if (Test-Path $zip) { Remove-Item $zip }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory($staging, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLower()
+          [System.IO.File]::WriteAllText("$($zip).sha256", "$hash  $artifact`n")
+          Write-Host "artifact: $artifact"
+          Write-Host "sha256:   $hash"
+
+      - name: Upload the experiment artifact and reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hosted-windows-experiment-${{ github.run_id }}
+          path: |
+            artifacts/hosted-preflight.json
+            artifacts/runner-capabilities.json
+            artifacts/*.log
+            artifacts/*.json
+            artifacts/*.zip
+            artifacts/*.sha256
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: State the ladder and the verdict
+        if: always()
+        shell: pwsh
+        run: |
+          @(
+            'Hosted Windows experiment - state ladder (never collapsed):',
+            '  gn gen succeeds        -> CONFIGURATION VERIFIED',
+            '  autoninja succeeds     -> COMPILED',
+            '  browser launches       -> RUNTIME INTEGRATED',
+            '  smoke test passes      -> TESTED',
+            '  physical Windows test  -> VERIFIED (owner-run, real hardware)',
+            '',
+            'A RESOURCE LIMIT verdict means: the standard hosted runner cannot build',
+            'Chromium at the documented minimums; provisioning the self-hosted builder',
+            '(or a larger hosted runner) is the only way forward.',
+            '',
+            'The artifact is UNSIGNED (signed=false, productionReady=false): never a production build.'
+          ) | Add-Content $env:GITHUB_STEP_SUMMARY

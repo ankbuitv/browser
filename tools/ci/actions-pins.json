@@ -1,0 +1,28 @@
+{
+  "$comment": [
+    "Approved GitHub Actions, pinned to immutable commit SHAs.",
+    "tools/ci/workflow-policy.mjs fails when a workflow references an action SHA",
+    "that is not listed here, so adding or bumping an action is an explicit,",
+    "reviewable change to this file.",
+    "Resolve a tag to a commit SHA with:",
+    "  gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq '.object.sha'",
+    "(follow the object once more if it is an annotated tag)."
+  ],
+  "approved": {
+    "actions/checkout@11d5960a326750d5838078e36cf38b85af677262": {
+      "tag": "v4",
+      "resolvedAt": "2026-10-07",
+      "purpose": "Repository checkout in CI."
+    },
+    "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020": {
+      "tag": "v4",
+      "resolvedAt": "2026-10-07",
+      "purpose": "Node.js toolchain for development tooling (never used at browser runtime)."
+    },
+    "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02": {
+      "tag": "v4",
+      "resolvedAt": "2026-10-07",
+      "purpose": "Upload build reports from the heavy build workflow."
+    }
+  }
+}
