@@ -42,16 +42,17 @@
 name: Chromium hosted constrained experiment
 
 on:
-  # Manual only. This burns hosted-runner minutes and Actions quota, so it
-  # starts when a maintainer dispatches it - from the Actions UI, or with
-  #   gh workflow run chromium-hosted-constrained-experiment.yml
-  #
-  # The automation credential this repository is worked with cannot create
-  # workflow_dispatch events (the API answers HTTP 403 - see
-  # docs/CI-SECURITY.md). The single controlled run was therefore started the
-  # way this project already did once, with a temporary `push:` trigger that
-  # listened for changes to tools/ci/hosted-experiment-trigger.txt; that
-  # trigger and the file were removed again as soon as the run had started.
+  # TEMPORARY PUSH TRIGGER - removed again as soon as the run has started.
+  # This workflow is manual-only by design: it burns hosted-runner minutes and
+  # Actions quota, and must never spend them on its own. The automation
+  # credential cannot create workflow_dispatch events (HTTP 403 - see
+  # docs/CI-SECURITY.md), so the controlled run is started the way this
+  # project already did once: by pushing a file whose only purpose is to
+  # trigger it.
+  push:
+    branches: [arena/11911355-browser]
+    paths: ['tools/ci/hosted-experiment-trigger.txt']
+  # Manual only. This is how the owner runs it again.
   workflow_dispatch:
     inputs:
       jobs:
@@ -520,11 +521,57 @@ jobs:
           New-Item -ItemType Directory -Force -Path 'artifacts/logs' | Out-Null
           Add-Content $env:GITHUB_STEP_SUMMARY ''
           Add-Content $env:GITHUB_STEP_SUMMARY '**Attempting one controlled build** (HOSTED_CONSTRAINED_EXPERIMENT; unsigned development artifact if it finishes).'
-          # --no-history, --target-os win and --small-checkout are documented
-          # reductions of what is *fetched*. sync.mjs asks `gclient help sync`
-          # before using --no-history and records which of the two shapes ran.
-          node tools/chromium/sync.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --low-resource-experiment --no-history --target-os win --small-checkout 2>&1 | Tee-Object -FilePath 'artifacts/logs/sync.log'
-          if ($LASTEXITCODE -ne 0) { throw "the Chromium sync failed with exit code $LASTEXITCODE" }
+
+          # This repository's logs are not readable by every tool that needs to
+          # audit a run, so a failure has to be pushed somewhere that is: job
+          # annotations, which the checks API returns. Publish-LogTail echoes
+          # the tail of a log as ::error annotations (escaped, truncated).
+          function Publish-LogTail {
+            param([string]$Path, [string]$Title, [int]$Count = 15)
+            if (-not (Test-Path $Path)) { return }
+            $lines = @(Get-Content $Path -Tail 400 -ErrorAction SilentlyContinue |
+              Where-Object { $_.Trim().Length -gt 0 })
+            if ($lines.Count -eq 0) { return }
+            foreach ($line in ($lines | Select-Object -Last $Count)) {
+              $text = ($line.Trim() -replace '%', '%25' -replace "`r", '' -replace "`n", ' ')
+              if ($text.Length -gt 480) { $text = $text.Substring(0, 480) }
+              Write-Host "::error title=$Title::$text"
+            }
+          }
+
+          # Which of the documented reductions the installed gclient accepts.
+          $gclientHelp = (& gclient help sync 2>&1 | Out-String)
+          Write-Host "::notice title=gclient sync switches::no-history=$($gclientHelp -match '--no-history')"
+
+          # Three shapes, tried in order of how much they save. The reductions
+          # are all documented; whether a given depot_tools build honours them
+          # is not something this repository can promise, so a reduction that
+          # breaks the sync is dropped rather than aborting the experiment -
+          # and which shape actually worked is recorded in the evidence.
+          $attempts = @(
+            @{ label = 'constrained: --no-history --target-os win --small-checkout'; args = @('--no-history', '--target-os', 'win', '--small-checkout') }
+            @{ label = 'constrained without the shallow clone: --target-os win --small-checkout'; args = @('--target-os', 'win', '--small-checkout') }
+            @{ label = 'plain checkout of the pinned revision'; args = @() }
+          )
+          $syncShape = 'failed'
+          $syncExit = $null
+          for ($i = 0; $i -lt $attempts.Count; $i += 1) {
+            $attempt = $attempts[$i]
+            $log = "artifacts/logs/sync-$i.log"
+            Write-Host "sync attempt $($i + 1) of $($attempts.Count): $($attempt.label)"
+            node tools/chromium/sync.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --low-resource-experiment $attempt.args 2>&1 | Tee-Object -FilePath $log
+            $syncExit = $LASTEXITCODE
+            if ($syncExit -eq 0) {
+              $syncShape = $attempt.label
+              break
+            }
+            Publish-LogTail -Path $log -Title "sync attempt $($i + 1) failed" -Count 12
+          }
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) 'artifacts/hosted-constrained-sync.json'),
+            ("{`"shape`":`"$syncShape`",`"exitCode`":$(if ($syncExit -eq $null) { 'null' } else { $syncExit })}`n"))
+          if ($syncExit -ne 0) { throw "the Chromium sync failed with exit code $syncExit" }
+          Add-Content $env:GITHUB_STEP_SUMMARY "- sync shape that worked: $syncShape"
           $gclientPath = Join-Path $env:AURELIA_CHROMIUM_DEST '.gclient'
           if (Test-Path $gclientPath) {
             Copy-Item $gclientPath 'artifacts/gclient-used.txt'
@@ -799,6 +846,7 @@ jobs:
           $afterSync = Read-JsonFile 'artifacts/hosted-constrained-disk-after-sync.json'
           $graph     = Read-JsonFile 'artifacts/hosted-constrained-graph.json'
           $compile   = Read-JsonFile 'artifacts/hosted-constrained-compile.json'
+          $syncInfo  = Read-JsonFile 'artifacts/hosted-constrained-sync.json'
           $capabilities = Read-JsonFile 'artifacts/runner-capabilities.json'
 
           # --- the last stage that actually finished -------------------------
@@ -827,6 +875,9 @@ jobs:
             'artifacts/logs/compile-driver.out.log',
             'artifacts/logs/autoninja.log',
             'artifacts/logs/gn.log',
+            'artifacts/logs/sync-2.log',
+            'artifacts/logs/sync-1.log',
+            'artifacts/logs/sync-0.log',
             'artifacts/logs/sync.log',
             'artifacts/logs/install-overlay.log',
             'artifacts/logs/verify-patches.log',
@@ -839,6 +890,21 @@ jobs:
             if ($hits.Count -gt 0) {
               $firstError = [ordered]@{ log = $log; line = $hits[0].Line.Trim() }
               break
+            }
+          }
+          # A run that fails without matching any pattern still has to say
+          # something, so fall back to the tail of the newest log that exists.
+          if ($firstError -eq $null) {
+            $newest = $null
+            foreach ($log in $logOrder) {
+              if (Test-Path $log) { $newest = $log; break }
+            }
+            if ($newest -ne $null) {
+              $tail = @(Get-Content $newest -Tail 200 -ErrorAction SilentlyContinue |
+                Where-Object { $_.Trim().Length -gt 0 } | Select-Object -Last 1)
+              if ($tail.Count -gt 0) {
+                $firstError = [ordered]@{ log = $newest; line = "last line: $($tail[0].Trim())" }
+              }
             }
           }
 
@@ -939,6 +1005,7 @@ jobs:
               duringCompile        = $(if ($compile -ne $null) { $compile.samples } else { $null })
               afterCompileGb       = $(if ($compile -ne $null -and $compile.lastSample -ne $null) { $compile.lastSample.freeDiskGb } else { $null })
             }
+            syncShape             = $(if ($syncInfo -ne $null) { $syncInfo.shape } else { $null })
             revisions             = [ordered]@{
               aurelia              = $env:GITHUB_SHA
               chromium             = $chromiumSha
@@ -975,7 +1042,19 @@ jobs:
             (Join-Path $workspace 'artifacts/hosted-constrained-evidence.json'),
             ($evidence | ConvertTo-Json -Depth 8) + "`n")
 
+          # The classification and the first error also go out as annotations:
+          # a job log is not reachable from every tool that has to audit this
+          # run, and an experiment that cannot explain its own failure is not
+          # evidence.
           "classification=$classification" | Add-Content $env:GITHUB_OUTPUT
+          if ($firstError -ne $null) {
+            $message = ($firstError.line -replace '%', '%25' -replace "`r", '' -replace "`n", ' ')
+            if ($message.Length -gt 480) { $message = $message.Substring(0, 480) }
+            Write-Host "::error title=HOSTED_CONSTRAINED_EXPERIMENT $classification [$($firstError.log)]::$message"
+          }
+          if ($syncInfo -ne $null) {
+            Write-Host "::notice title=Sync shape::$($syncInfo.shape)"
+          }
           @(
             '',
             '### HOSTED_CONSTRAINED_EXPERIMENT - verdict',
