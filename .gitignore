@@ -4,22 +4,27 @@ node_modules/
 .vite/
 coverage/
 
-# Aurelia build outputs
-out/
-dist/
-build/
-artifacts/
+# Aurelia build outputs (anchored to the repository root: nested directories
+# with these names can be legitimate source paths)
+/out/
+/dist/
+/build/
+/artifacts/
 
 # ---------------------------------------------------------------
 # Chromium source tree
 # ---------------------------------------------------------------
 # Chromium is NEVER vendored into this repository. `tools/chromium/sync.mjs`
-# checks out a pinned revision into a directory outside of Git, or into
-# `chromium/` which is ignored below. See docs/CHROMIUM-UPSTREAM.md.
-chromium/
-chromium-src/
+# checks out a pinned revision wherever --dest points (normally outside the
+# repository). These rules only catch an accidental in-tree checkout.
+#
+# IMPORTANT: these patterns are anchored to the repository root. An unanchored
+# `chromium/` would also ignore this project's own `chromium/` overlay and
+# `tools/chromium/` tooling - see the repository test that guards this.
+/chromium-checkout/
+/chromium-src/
+/depot_tools/
 *.crx
-depot_tools/
 
 # Patch application scratch space (used by tools/chromium/patch.mjs)
 .patch-work/

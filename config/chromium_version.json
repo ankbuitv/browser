@@ -1,0 +1,76 @@
+{
+  "$comment": [
+    "Aurelia Browser - Chromium pin configuration (single source of truth).",
+    "Never edit the revision fields by hand after a release: the update bot proposes",
+    "a change to this file, and a maintainer merges it after the patch set has been",
+    "verified against the candidate revision (docs/CHROMIUM-UPSTREAM.md).",
+    "Do not replace `revision` with a moving ref such as `main` or `latest`."
+  ],
+  "schemaVersion": 1,
+  "product": {
+    "codename": "Aurelia",
+    "nameIsCodenameOnly": true,
+    "namingReview": "docs/NAMING.md",
+    "version": "0.1.0",
+    "channel": "development",
+    "license": "MPL-2.0"
+  },
+  "chromium": {
+    "upstreamRepository": "https://github.com/chromium/chromium",
+    "upstreamRef": "tag:155.0.8059.73",
+    "version": "155.0.8059.73",
+    "milestone": 155,
+    "channel": "stable",
+    "revision": "6dfaefa462dbbed162e67eb277914f6b1afa36ac",
+    "revisionKind": "annotated-tag-target",
+    "pinnedAt": "2026-10-07",
+    "pinnedBy": "@ankbuitv",
+    "pinRationale": "Latest patch level available for the current stable milestone series at pin time, so the baseline includes current stable security fixes rather than an older branch point.",
+    "pinEvidence": [
+      "https://github.com/chromium/chromium/releases/tag/155.0.8059.73",
+      "git ls-remote --tags https://github.com/chromium/chromium refs/tags/155.0.8059.73"
+    ],
+    "revisionVerifiedBy": "tools/chromium/cli.mjs verify-upstream"
+  },
+  "patchSet": {
+    "version": "0.1.0",
+    "directory": "chromium/patches",
+    "overlayDirectory": "chromium/overlay",
+    "verificationDirectory": "chromium/verification",
+    "baseRevision": "6dfaefa462dbbed162e67eb277914f6b1afa36ac",
+    "targetsRepositoryTree": true
+  },
+  "updatePolicy": {
+    "automaticMerge": false,
+    "allowMovingRefs": false,
+    "securityChannelPriority": true,
+    "procedure": "docs/CHROMIUM-UPSTREAM.md#update-procedure",
+    "botWorkflow": ".github/workflows/chromium-update-watch.yml",
+    "rules": [
+      "Never merge a Chromium update directly into main.",
+      "Detect -> open an issue with a candidate revision and the patch verification report -> verify patch set -> heavy build + smoke test -> maintainer merge.",
+      "Security releases are prioritised but still verified before merge.",
+      "A pin change requires a matching `git apply` verification against the new revision."
+    ]
+  },
+  "toolchain": {
+    "depotTools": {
+      "source": "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
+      "revision": null,
+      "revisionStatus": "unresolved",
+      "why": "depot_tools is not mirrored on GitHub and the scaffolding sandbox cannot reach chromium.googlesource.com, so no revision has been pinned yet. Do not invent one: resolve it on the heavy builder with `git -C depot_tools rev-parse HEAD`, record it here, and re-run tools/chromium/sync.mjs.",
+      "recordWith": "node tools/chromium/sync.mjs --record-depot-tools <sha>",
+      "trackedBy": "issue:toolchain-pin"
+    }
+  },
+  "buildRequirements": {
+    "documentedIn": "docs/BUILDING-CHROMIUM.md",
+    "referenceBuilder": {
+      "cpuCores": 8,
+      "ramGb": 32,
+      "freeDiskGb": 150,
+      "notes": "Measured requirements are recorded once real builds run; see docs/BUILDING-CHROMIUM.md."
+    },
+    "sandboxNote": "The development sandbox used for scaffolding has ~20 GB free disk and cannot hold or build a Chromium checkout. Only lightweight upstream file verification runs there."
+  }
+}
