@@ -26,6 +26,7 @@ import {
   verifyOffline,
 } from '../chromium/verify-patches.mjs';
 import { gnArgFiles, validateGnArgs } from '../chromium/gn-args.mjs';
+import { checkContrast } from '../design/check-contrast.mjs';
 import { compareWorkflows } from './install-workflows.mjs';
 import { checkWorkflows } from './workflow-policy.mjs';
 import { scanRepository } from './secret-scan.mjs';
@@ -159,6 +160,15 @@ export function runFastChecks({ log = console.log } = {}) {
         : missingDocs.join(', '),
     );
   }
+
+  const contrast = checkContrast();
+  record(
+    'design tokens meet WCAG 2.1 AA contrast',
+    contrast.ok,
+    contrast.ok
+      ? `${contrast.results.length} pair(s) checked`
+      : contrast.problems.join('; '),
+  );
 
   // The reviewed GN arguments are an artefact like any other: every key must be
   // in the allowlist and every value in its allowed set, or the build would be

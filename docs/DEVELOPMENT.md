@@ -27,6 +27,8 @@ Useful commands:
 | `npm run lint`                                        | ESLint (flat config)                                 |
 | `npm run typecheck`                                   | TypeScript (no emit)                                 |
 | `node tools/design/generate-tokens.mjs`               | Regenerate design-token outputs                      |
+| `node tools/design/check-contrast.mjs`                | WCAG 2.1 AA check for every declared token pair      |
+| `node tools/chromium/build.mjs --dry-run`             | Print the full build pipeline without running it     |
 | `node tools/chromium/cli.mjs generate-version`        | Regenerate the compiled-in version header            |
 | `node tools/chromium/cli.mjs verify-patches --online` | Prove the patch still applies to the pinned revision |
 | `node tools/chromium/cli.mjs fork-delta --json`       | Measured fork delta                                  |
@@ -38,7 +40,8 @@ Editing rules that CI enforces:
 - the overlay may only contain Chromium-native file types - no `package.json`,
   no `node_modules`, no `tsconfig.json`;
 - workflows must pin actions to SHAs listed in `tools/ci/actions-pins.json`;
-- the NextDNS endpoint literal lives in exactly one module.
+- the NextDNS endpoint literal lives in exactly one module;
+- every token pair declared in `check-contrast.mjs` meets its WCAG threshold.
 
 ### The UI development harness
 
