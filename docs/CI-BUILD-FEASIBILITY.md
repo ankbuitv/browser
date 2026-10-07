@@ -93,6 +93,24 @@ self-hosted `[self-hosted, windows, x64, aurelia-chromium]` builder remains the
 only path. Re-measure by dispatching the experiment workflow (Actions UI) if
 GitHub changes its images.
 
+## The constrained experiment (below the minimums, on purpose)
+
+The verdict above is a verdict about the **reference minimums**. It is not
+proof that Chromium cannot compile on the machine. One controlled run answers
+that separately: [HOSTED-CONSTRAINED-EXPERIMENT.md](HOSTED-CONSTRAINED-EXPERIMENT.md).
+
+What it does and does not change, in one line each: it reduces **what is
+fetched** (shallow clone when gclient supports it, `target_os` restricted to
+the host, DEPS' own `"small"` checkout configuration) and **what the compiler is
+asked to do** (`symbol_level = 0`, one link at a time, component build,
+`autoninja -j 2`); it never reduces the sandbox, site isolation, TLS
+verification or process isolation, never touches the pin or the patch set, and
+never edits the reference minimums above. The expected outcome is a
+`TIME/QUOTA LIMIT`: roughly 10^5 compile edges do not finish in a six-hour
+hosted job on four cores. That is still the measurement this project was
+missing, and it is recorded with the achieved rate so the next decision rests on
+a number.
+
 ## The same pipeline without GitHub
 
 `tools/chromium/build.mjs` runs the identical stages locally (`--dry-run` prints

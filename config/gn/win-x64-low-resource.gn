@@ -8,17 +8,36 @@
 # appears here, and the allowlist in tools/chromium/gn-args.mjs rejects such
 # keys outright.
 #
-# Every key below exists in Chromium at the pinned revision; nothing is
-# invented. The three reductions, with the upstream evidence:
+# Every key below was checked against the pinned revision
+# cfaadc5a132d78e1828635aa8405a499f3e14864 (155.0.8059.40) by reading the
+# upstream files that declare it. Nothing is invented, and two arguments that
+# look like obvious wins were checked and deliberately NOT added:
+#
+#   blink_symbol_level / v8_symbol_level
+#     upstream's own docs/windows_build_instructions.md still recommends
+#     `blink_symbol_level = 0` and `v8_symbol_level = 0` under "Faster builds",
+#     but neither is declared at the pinned revision: build/config/compiler/
+#     compiler.gni (where both historically lived) contains no such key, and
+#     none of the 26 build/config/*.gni files does. The doc is stale. Passing
+#     an undeclared argument is a hard `gn gen` error ("Unknown argument"), so
+#     adding it here would break the configure step, not speed it up.
+#
+#   enable_precompiled_headers
+#     build/config/pch.gni defaults it to true on Windows for a non-official,
+#     non-remote-execution build with no cc_wrapper - which is exactly this
+#     configuration - so setting it would change nothing.
+#
+# The three reductions, with the upstream evidence:
 #
 #   symbol_level = 0
-#     On Windows the default for is_debug = false is 2 (full symbols):
-#     build/config/compiler/compiler.gni sets
-#         default_symbol_level = 2
-#     for `!is_linux && !is_chromeos && !is_fuchsia && !is_debug`, and the
-#     per-target default is derived from it. Symbols dominate compile memory,
-#     link time and disk. 0 means no symbols, so crash stacks are incomplete -
-#     acceptable for a local experiment, never for a released build.
+#     On Windows the default for a non-official build is 2 (full symbols):
+#     build/config/compiler/compiler.gni ends its default chain with
+#         else if ((!is_linux && !is_chromeos && !is_fuchsia && ...) || is_debug)
+#           default_symbol_level = 2
+#     and `symbol_level = default_symbol_level` is then declared. Symbols
+#     dominate compile memory, link time and disk. 0 means no symbols, so
+#     crash stacks are incomplete - acceptable for an experiment, never for a
+#     released build.
 #
 #   concurrent_links = 1
 #     Upstream's own lever for memory-constrained builds
@@ -26,7 +45,9 @@
 #     at once than we do compiles, because linking is memory-intensive").
 #     One link at a time; compilation still runs in parallel - the number of
 #     compile jobs is limited on the command line instead
-#     (`autoninja -j N`, see tools/windows/bootstrap-build.ps1).
+#     (`autoninja -j N`, computed by tools/chromium/low-resource.mjs).
+#     Explicit values are incompatible with thin LTO (upstream assert), which
+#     no Aurelia configuration enables.
 #
 #   is_component_build = true
 #     Many smaller shared libraries instead of two huge ones: shorter links and

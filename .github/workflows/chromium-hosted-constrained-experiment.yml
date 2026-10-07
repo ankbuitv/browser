@@ -1,0 +1,933 @@
+# Aurelia Browser - HOSTED_CONSTRAINED_EXPERIMENT (one attempt, measured).
+#
+# Why this workflow exists
+# ------------------------
+# The production heavy build (chromium-heavy-build-windows.yml) runs on a
+# self-hosted [self-hosted, windows, x64, aurelia-chromium] builder, and the
+# documented reference minimums (8 logical cores / 32 GB RAM / 150 GB free,
+# config/chromium_version.json) are NOT lowered here or anywhere else.
+#
+# chromium-hosted-windows-experiment.yml already measured a standard hosted
+# Windows runner: AMD EPYC 7763, 4 logical processors, 16 GB RAM, ~147 GB free
+# on the best volume - and stopped before syncing because the machine fails the
+# reference minimums. That verdict proved the runner is *below the
+# recommendation*. It did not prove Chromium cannot compile there.
+#
+# This workflow is the one controlled experiment that answers the second
+# question with numbers. It is deliberately below-spec, deliberately runs at
+# most once per dispatch, and is honest about what it can and cannot prove:
+#
+#   * it does NOT change the documented reference minimums;
+#   * it does NOT touch the sandbox, site isolation, TLS verification or
+#     process isolation - no such switch exists in the GN profile
+#     (tools/chromium/gn-args.mjs rejects the keys outright);
+#   * it applies the project's own experimental floor
+#     (tools/chromium/low-resource.mjs): 6 GB RAM, 2 logical cores, 100 GB free
+#     on an NTFS volume, plus the Visual Studio / SDK / git / Node toolchain;
+#   * it reduces what is *fetched* (shallow clone when gclient supports it,
+#     target_os restricted to the host, DEPS' own "small" checkout
+#     configuration) and what the *compiler* is asked to do
+#     (config/gn/win-x64-low-resource.gn: symbol_level 0, one link at a time,
+#     component build) - never what the browser is allowed to do.
+#
+# The likely outcome is a TIME/QUOTA LIMIT: this runner is not expected to
+# finish ~10^5 compile edges inside a six-hour hosted job. That result is
+# evidence, and it is recorded as such - with the rate that was actually
+# achieved, so the next decision (a bigger hosted runner, or the self-hosted
+# builder) rests on a measurement instead of an assumption.
+#
+# No secrets, no signing, no release: any artifact is an UNSIGNED development
+# build, signed=false, productionReady=false.
+
+name: Chromium hosted constrained experiment
+
+on:
+  # Manual only. This burns hosted-runner minutes and Actions quota, so it
+  # starts when a maintainer dispatches it - never on push, never on a
+  # schedule.
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'autoninja -j N. 2 is the conservative default for 16 GB / 4 logical cores.'
+        required: true
+        default: '2'
+      compile_budget_minutes:
+        description: 'Wall-clock ceiling for the compile stage. The job itself is capped at 360 minutes.'
+        required: true
+        default: '150'
+      disk_reserve_gb:
+        description: 'Emergency reserve. The compile stops before the build volume has less than this free.'
+        required: true
+        default: '10'
+      reason:
+        description: 'Why this experiment is being run (recorded in the evidence report).'
+        required: false
+        default: 'HOSTED_CONSTRAINED_EXPERIMENT'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chromium-hosted-constrained-experiment
+  cancel-in-progress: false
+
+jobs:
+  constrained-experiment:
+    name: HOSTED_CONSTRAINED_EXPERIMENT (one attempt)
+    # windows-latest is the standard hosted image; the exact image, CPU, RAM
+    # and volumes are recorded by the measurement step, never assumed.
+    runs-on: windows-latest
+    # The hosted job ceiling is 6 hours. Every long step also carries its own
+    # timeout so a hung stage cannot consume the whole budget.
+    timeout-minutes: 360
+    env:
+      # Resolved once, into the environment, so every step and every `if:`
+      # agrees. `github.event.inputs` is used rather than the `inputs` context
+      # so the fallbacks also hold for a non-dispatch event.
+      EXPERIMENT_MODE: 'HOSTED_CONSTRAINED_EXPERIMENT'
+      EXPERIMENT_JOBS: ${{ github.event.inputs.jobs || '2' }}
+      EXPERIMENT_COMPILE_BUDGET_MINUTES: ${{ github.event.inputs.compile_budget_minutes || '150' }}
+      EXPERIMENT_DISK_RESERVE_GB: ${{ github.event.inputs.disk_reserve_gb || '10' }}
+      EXPERIMENT_REASON: ${{ github.event.inputs.reason || 'unspecified' }}
+    steps:
+      - name: Check out Aurelia
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Node.js (tooling only; never a browser runtime dependency)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+
+      - name: Measure the runner and choose the build volume
+        id: measure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Native tools write progress to stderr; with $ErrorActionPreference
+          # set to Stop that can become a terminating error. Disable the
+          # interaction and check exit codes explicitly.
+          $PSNativeCommandUseErrorActionPreference = $false
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          $workspace = (Get-Location).Path
+          "EXPERIMENT_STARTED_AT=$((Get-Date).ToUniversalTime().ToString('o'))" | Add-Content $env:GITHUB_ENV
+
+          $cpu      = Get-CimInstance Win32_Processor | Select-Object -First 1
+          $os       = Get-CimInstance Win32_OperatingSystem
+          $computer = Get-CimInstance Win32_ComputerSystem
+
+          $volumes = @(
+            Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-Object {
+              [ordered]@{
+                drive      = $_.DeviceID
+                volumeName = $_.VolumeName
+                filesystem = $_.FileSystem
+                sizeGb     = [math]::Round($_.Size / 1GB, 1)
+                freeGb     = [math]::Round($_.FreeSpace / 1GB, 1)
+              }
+            } | Sort-Object -Property freeGb -Descending
+          )
+
+          # The checkout goes on the roomiest NTFS volume, not on TEMP: on the
+          # measured image C: and TEMP had 32.1 GB free while D: had 147 GB.
+          $ntfs = @($volumes | Where-Object { $_.filesystem -eq 'NTFS' })
+          if ($ntfs.Count -eq 0) { $ntfs = $volumes }
+          $chosen = $ntfs[0]
+          $dest = Join-Path $chosen.drive 'aurelia'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $tmpDir = Join-Path $dest 'tmp'
+          New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+
+          $python = $null
+          if (Get-Command python -ErrorAction SilentlyContinue) {
+            $python = (& python --version 2>&1 | Out-String).Trim()
+          }
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsPath = $null
+          $msvcToolsets = @()
+          if (Test-Path $vswhere) {
+            $vsPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Out-String).Trim()
+            if ([string]::IsNullOrWhiteSpace($vsPath)) { $vsPath = $null }
+            $msvcToolsets = @(
+              & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC\Tools\MSVC\**\cl.exe' |
+                ForEach-Object { if ($_ -match 'VC\\Tools\\MSVC\\([^\\]+)\\') { $Matches[1] } } |
+                Sort-Object -Unique
+            )
+          }
+
+          $sdkInclude = 'C:\Program Files (x86)\Windows Kits\10\Include'
+          $windowsSdks = if (Test-Path $sdkInclude) { @(Get-ChildItem $sdkInclude -Directory | Select-Object -ExpandProperty Name) } else { @() }
+
+          $pagefileUsage = @(Get-CimInstance Win32_PageFileUsage -ErrorAction SilentlyContinue)
+          $pagefileGb = [math]::Round((($pagefileUsage | Measure-Object -Property AllocatedBaseSize -Sum).Sum) / 1024, 1)
+
+          $longPathsValue = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -ErrorAction SilentlyContinue
+
+          $disk = [ordered]@{
+            target     = $dest
+            volume     = $chosen.drive
+            filesystem = $chosen.filesystem
+            sizeGb     = $chosen.sizeGb
+            freeGb     = $chosen.freeGb
+          }
+
+          $environment = [ordered]@{
+            dest     = $dest
+            windows  = [ordered]@{
+              caption      = $os.Caption
+              version      = $os.Version
+              buildNumber  = [int]$os.BuildNumber
+              architecture = $os.OSArchitecture
+            }
+            cpu      = [ordered]@{
+              model         = $cpu.Name
+              physicalCores = $cpu.NumberOfCores
+              logicalCores  = $cpu.NumberOfLogicalProcessors
+            }
+            memory   = [ordered]@{
+              totalGb     = [math]::Round($computer.TotalPhysicalMemory / 1GB, 1)
+              availableGb = [math]::Round($os.FreePhysicalMemory * 1KB / 1GB, 1)
+            }
+            disk     = $disk
+            pagefile = [ordered]@{
+              configured       = ($pagefileUsage.Count -gt 0)
+              allocatedGb      = $pagefileGb
+              automaticManaged = $computer.AutomaticManagedPagefile
+              files            = @($pagefileUsage | ForEach-Object { $_.Name })
+            }
+            tooling  = [ordered]@{
+              node                     = (& node --version)
+              git                      = ((& git --version) -replace '^git version ', '')
+              python                   = $python
+              visualStudio             = $(if ($vsPath -eq $null) { 'MISSING' } else { $vsPath })
+              visualStudioHasCppTools  = ($vsPath -ne $null)
+              msvcToolsets             = $msvcToolsets
+              windowsSdks              = $windowsSdks
+              longPathsEnabled         = ($longPathsValue -ne $null -and $longPathsValue.LongPathsEnabled -eq 1)
+            }
+          }
+          [System.IO.File]::WriteAllText(
+            (Join-Path $workspace 'artifacts/hosted-constrained-environment.json'),
+            ($environment | ConvertTo-Json -Depth 6) + "`n")
+
+          $report = [ordered]@{
+            experiment   = 'hosted-constrained-preflight'
+            mode         = $env:EXPERIMENT_MODE
+            reason       = $env:EXPERIMENT_REASON
+            runner       = [ordered]@{
+              name         = $env:RUNNER_NAME
+              os           = $env:RUNNER_OS
+              arch         = $env:RUNNER_ARCH
+              imageOs      = $env:ImageOS
+              imageVersion = $env:ImageVersion
+            }
+            cpu          = $environment.cpu
+            memory       = $environment.memory
+            volumes      = $volumes
+            chosenVolume = $chosen
+            destination  = $dest
+            tooling      = $environment.tooling
+            pagefile     = $environment.pagefile
+            diskInitial  = [ordered]@{
+              measuredAt = (Get-Date).ToUniversalTime().ToString('o')
+              volumes    = @($volumes | ForEach-Object { "$($_.drive)=$($_.freeGb)GB free" })
+            }
+            measuredAt   = (Get-Date).ToUniversalTime().ToString('o')
+          }
+          [System.IO.File]::WriteAllText(
+            (Join-Path $workspace 'artifacts/hosted-constrained-preflight.json'),
+            ($report | ConvertTo-Json -Depth 6) + "`n")
+
+          "AURELIA_CHROMIUM_DEST=$dest" | Add-Content $env:GITHUB_ENV
+          "AURELIA_BUILD_VOLUME=$($chosen.drive)" | Add-Content $env:GITHUB_ENV
+          # Keep Windows/toolchain temporary files on the roomy volume too, so
+          # a 32 GB system volume cannot become the surprise bottleneck.
+          "TMP=$tmpDir" | Add-Content $env:GITHUB_ENV
+          "TEMP=$tmpDir" | Add-Content $env:GITHUB_ENV
+          $env:TMP = $tmpDir
+          $env:TEMP = $tmpDir
+
+          $volumeText = ($volumes | ForEach-Object { "$($_.drive)=$($_.freeGb)GB" }) -join ', '
+          Write-Host "::notice title=Hosted runner measurement::$($env:ImageOS) $($env:ImageVersion) cpu=$($cpu.Name) x$($cpu.NumberOfLogicalProcessors) ram=$($environment.memory.totalGb)GB volumes=[$volumeText] chosen=$($chosen.drive) dest=$dest"
+
+      - name: Classify against the documented minimums (never lowered)
+        id: gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          # The repository's own check decides, so this verdict and the verdict
+          # before provisioning a real builder cannot disagree. The reference
+          # minimums come from config/chromium_version.json and are not
+          # overridden here: the shortfall is recorded, not waived.
+          node tools/ci/check-builder.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --record artifacts/runner-capabilities.json --no-fail
+          if ($LASTEXITCODE -ne 0) { throw "check-builder failed with exit code $LASTEXITCODE" }
+          $capabilities = Get-Content artifacts/runner-capabilities.json -Raw | ConvertFrom-Json
+          $problems = @($capabilities.problems)
+          @(
+            '### HOSTED_CONSTRAINED_EXPERIMENT - measured runner',
+            '',
+            "- image: ``$($env:ImageOS)`` / ``$($env:ImageVersion)``",
+            "- cpu: $($capabilities.cpuModel) - $($capabilities.cpuCores) logical core(s)",
+            "- ram: $($capabilities.ramGb) GB",
+            "- free disk (chosen volume $($capabilities.freeDisk.Values -join ', ')): $($capabilities.freeDiskGb) GB",
+            "- required by the reference builder: $($capabilities.requirements.cpuCores) cores / $($capabilities.requirements.ramGb) GB / $($capabilities.requirements.freeDiskGb) GB",
+            '',
+            "Shortfall against the documented reference minimums (**not** lowered, **not** waived):"
+          ) | Add-Content $env:GITHUB_STEP_SUMMARY
+          foreach ($problem in $problems) {
+            Add-Content $env:GITHUB_STEP_SUMMARY "  - $problem"
+            Write-Host "reference-builder shortfall: $problem"
+          }
+          "referenceProblems=$($problems -join '; ')" | Add-Content $env:GITHUB_OUTPUT
+
+      - name: Apply the HOSTED_CONSTRAINED_EXPERIMENT floor
+        id: floor
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          # The experimental floor lives in the repository, not in the
+          # workflow: 6 GB RAM, 2 logical cores, 100 GB free on NTFS, plus the
+          # Visual Studio C++ toolset, a Windows SDK, git and Node. Anything
+          # below it is refused, because filling a disk or thrashing swap for
+          # hours is not a useful experiment.
+          $verdictJson = & node tools/chromium/low-resource.mjs --environment artifacts/hosted-constrained-environment.json --low-resource-experiment --json
+          $code = $LASTEXITCODE
+          # 0 = may proceed, 1 = refused by the floor (handled below, with the
+          # problems listed), 2 = the check itself could not run.
+          if ($code -eq 2) { throw "the experiment floor check could not run (exit $code)" }
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) 'artifacts/hosted-constrained-verdict.json'),
+            (($verdictJson -join "`n") + "`n"))
+          $verdict = $verdictJson | ConvertFrom-Json
+          Write-Host ($verdictJson -join "`n")
+          @(
+            '',
+            "Experimental floor verdict: mode=$($verdict.mode) ok=$($verdict.ok) jobs=$($verdict.jobs)",
+            "- $($verdict.jobsReason)",
+            "- disk: $($verdict.disk.freeGb) GB free on $($verdict.disk.target) (floor $($verdict.disk.floorGb) GB, reserve $($verdict.disk.reserveGb) GB never filled; the reference minimum is $($verdict.disk.referenceFreeDiskGb) GB)"
+          ) | Add-Content $env:GITHUB_STEP_SUMMARY
+          foreach ($warning in @($verdict.warnings)) {
+            Add-Content $env:GITHUB_STEP_SUMMARY "  - warning: $warning"
+          }
+          if ($verdict.ok -eq $true) {
+            "admissible=true" | Add-Content $env:GITHUB_OUTPUT
+            "plannedJobs=$($verdict.jobs)" | Add-Content $env:GITHUB_OUTPUT
+          } else {
+            "admissible=false" | Add-Content $env:GITHUB_OUTPUT
+            Add-Content $env:GITHUB_STEP_SUMMARY ''
+            Add-Content $env:GITHUB_STEP_SUMMARY '**Classification: RESOURCE LIMIT** - below even the experimental floor; nothing was synced.'
+            foreach ($problem in @($verdict.problems)) {
+              Write-Host "::error title=RESOURCE LIMIT::$problem"
+            }
+            exit 1
+          }
+          if ("$env:EXPERIMENT_JOBS" -ne "$($verdict.jobs)") {
+            Add-Content $env:GITHUB_STEP_SUMMARY "  - note: dispatching with -j $env:EXPERIMENT_JOBS instead of the computed -j $($verdict.jobs)"
+          }
+          Add-Content $env:GITHUB_STEP_SUMMARY "  - compile jobs: autoninja -j $env:EXPERIMENT_JOBS (concurrent_links = 1)"
+
+      - name: Reclaim disk from preinstalled data a Windows Chromium build does not use
+        id: reclaim
+        if: steps.floor.outputs.admissible == 'true'
+        shell: pwsh
+        timeout-minutes: 20
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          function Get-VolumeFreeText {
+            $rows = Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-Object {
+              "$($_.DeviceID)=$([math]::Round($_.FreeSpace / 1GB, 1))GB"
+            }
+            return ($rows -join ', ')
+          }
+
+          $before = Get-VolumeFreeText
+          # An allowlist, not a sweep. Every entry is preinstalled data on the
+          # GitHub Windows image (actions/runner-images, Windows2025) that a
+          # Windows *Chromium* build provably does not need. Nothing that the
+          # build does need is on this list: no Visual Studio component, no
+          # MSVC toolset, no Windows SDK, no Git, no Python, no Node.
+          #
+          #   C:\Android                       Android SDK, emulator and three
+          #                                    NDKs (gated in DEPS behind
+          #                                    checkout_android, which is false
+          #                                    for a Windows-only checkout)
+          #   Haskell (ghc/cabal/msys2)        no part of the Chromium toolchain
+          #   Boost prebuilt                   not a Chromium dependency
+          #   Julia / Mercurial / Miniconda    not a Chromium dependency
+          #   package manager caches           re-downloadable at worst
+          #   Visual Studio *download cache*   the VS installation itself is
+          #                                    untouched; only its setup cache
+          $patterns = @(
+            'C:\Android',
+            "$env:LOCALAPPDATA\Android",
+            'C:\Program Files\Haskell',
+            'C:\Program Files (x86)\Haskell',
+            'C:\tools\ghc*',
+            'C:\Program Files\GHC',
+            "$env:LOCALAPPDATA\ghc*",
+            "$env:APPDATA\cabal",
+            "$env:LOCALAPPDATA\cabal",
+            'C:\hostedtoolcache\windows\Boost',
+            'C:\Program Files\Julia*',
+            'C:\Program Files\Mercurial',
+            'C:\ProgramData\Microsoft\VisualStudio\Packages',
+            "$env:LOCALAPPDATA\Microsoft\VisualStudio\Packages",
+            "$env:LOCALAPPDATA\pip\cache",
+            "$env:LOCALAPPDATA\npm-cache",
+            "$env:APPDATA\npm-cache",
+            "$env:LOCALAPPDATA\Yarn\cache",
+            "$env:LOCALAPPDATA\NuGet\v3-cache"
+          )
+
+          $targets = @()
+          foreach ($pattern in $patterns) {
+            if ([string]::IsNullOrWhiteSpace($pattern)) { continue }
+            $matches = @(Get-Item -Path $pattern -ErrorAction SilentlyContinue)
+            foreach ($item in $matches) { $targets += $item.FullName }
+          }
+
+          $removed = @()
+          $skipped = @()
+          foreach ($target in ($targets | Sort-Object -Unique)) {
+            if (-not (Test-Path $target)) { continue }
+            $freeBefore = [math]::Round((Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$($target.Substring(0,2))'").FreeSpace / 1GB, 1)
+            # rd /s /q is far faster than Remove-Item -Recurse on trees with
+            # hundreds of thousands of files (the Android SDK).
+            & cmd.exe /c "rd /s /q `"$target`"" 2>$null
+            $rdExit = $LASTEXITCODE
+            $stillThere = Test-Path $target
+            $freeAfter = [math]::Round((Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$($target.Substring(0,2))'").FreeSpace / 1GB, 1)
+            $entry = [ordered]@{
+              path        = $target
+              removed     = (-not $stillThere)
+              rdExitCode  = $rdExit
+              freedGb     = [math]::Round($freeAfter - $freeBefore, 1)
+            }
+            if ($stillThere) { $skipped += $entry } else { $removed += $entry }
+          }
+
+          $after = Get-VolumeFreeText
+          $report = [ordered]@{
+            before  = $before
+            after   = $after
+            removed = $removed
+            skipped = $skipped
+          }
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) 'artifacts/hosted-constrained-disk-reclaim.json'),
+            ($report | ConvertTo-Json -Depth 4) + "`n")
+          @(
+            '',
+            '### Safe disk reclamation (allowlist only)',
+            '',
+            "- before: $before",
+            "- after:  $after",
+            "- removed $($removed.Count) path(s), skipped $($skipped.Count) (locked or absent)"
+          ) | Add-Content $env:GITHUB_STEP_SUMMARY
+          foreach ($entry in $removed) {
+            Add-Content $env:GITHUB_STEP_SUMMARY "  - removed $($entry.path) (+$($entry.freedGb) GB free)"
+          }
+          Write-Host "disk before: $before"
+          Write-Host "disk after:  $after"
+
+      - name: Sync the pinned Chromium checkout (constrained)
+        id: sync
+        if: steps.floor.outputs.admissible == 'true'
+        shell: pwsh
+        timeout-minutes: 90
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          New-Item -ItemType Directory -Force -Path 'artifacts/logs' | Out-Null
+          Add-Content $env:GITHUB_STEP_SUMMARY ''
+          Add-Content $env:GITHUB_STEP_SUMMARY '**Attempting one controlled build** (HOSTED_CONSTRAINED_EXPERIMENT; unsigned development artifact if it finishes).'
+          # --no-history, --target-os win and --small-checkout are documented
+          # reductions of what is *fetched*. sync.mjs asks `gclient help sync`
+          # before using --no-history and records which of the two shapes ran.
+          node tools/chromium/sync.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --low-resource-experiment --no-history --target-os win --small-checkout 2>&1 | Tee-Object -FilePath 'artifacts/logs/sync.log'
+          if ($LASTEXITCODE -ne 0) { throw "the Chromium sync failed with exit code $LASTEXITCODE" }
+          $gclientPath = Join-Path $env:AURELIA_CHROMIUM_DEST '.gclient'
+          if (Test-Path $gclientPath) {
+            Copy-Item $gclientPath 'artifacts/gclient-used.txt'
+          }
+          $head = (& git -C (Join-Path $env:AURELIA_CHROMIUM_DEST 'src') rev-parse HEAD | Out-String).Trim()
+          "CHROMIUM_HEAD=$head" | Add-Content $env:GITHUB_ENV
+          "PATH=$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH" | Add-Content $env:GITHUB_ENV
+          $env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
+          $afterSync = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$env:AURELIA_BUILD_VOLUME'" | ForEach-Object { [math]::Round($_.FreeSpace / 1GB, 1) }
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) 'artifacts/hosted-constrained-disk-after-sync.json'),
+            ("{`"volume`":`"$env:AURELIA_BUILD_VOLUME`",`"freeGb`":$afterSync}`n"))
+          Add-Content $env:GITHUB_STEP_SUMMARY "- sync finished at $head; free disk on $env:AURELIA_BUILD_VOLUME : $afterSync GB"
+
+      - name: Verify the patch set against the pristine checkout
+        id: verify-patches
+        if: steps.sync.outcome == 'success'
+        shell: pwsh
+        timeout-minutes: 20
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only verify-patches --log-dir artifacts/logs
+          if ($LASTEXITCODE -ne 0) { throw "the patch set did not verify against the pinned revision (exit $LASTEXITCODE)" }
+
+      - name: Install the overlay, apply the patch series, check the fork delta
+        id: overlay
+        if: steps.verify-patches.outcome == 'success'
+        shell: pwsh
+        timeout-minutes: 20
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only install-overlay,fork-delta --log-dir artifacts/logs
+          if ($LASTEXITCODE -ne 0) { throw "the overlay, patch series or delta budget failed (exit $LASTEXITCODE)" }
+
+      - name: gn gen with the reviewed low-resource arguments
+        id: gn-gen
+        if: steps.overlay.outcome == 'success'
+        shell: pwsh
+        timeout-minutes: 30
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
+          node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only gn-args,gn-gen --log-dir artifacts/logs
+          if ($LASTEXITCODE -ne 0) { throw "gn gen failed (exit $LASTEXITCODE)" }
+          $argsFile = Join-Path $env:AURELIA_CHROMIUM_DEST 'src/out/Release/args.gn'
+          if (Test-Path $argsFile) {
+            Copy-Item $argsFile 'artifacts/args-effective.gn'
+            Add-Content $env:GITHUB_STEP_SUMMARY "- effective args: ``$(Get-Content $argsFile -Raw -replace '\s+', ' ')``"
+          }
+
+      - name: Count the build graph before compiling
+        id: graph
+        if: steps.gn-gen.outcome == 'success'
+        shell: pwsh
+        timeout-minutes: 20
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
+          $src = Join-Path $env:AURELIA_CHROMIUM_DEST 'src'
+          $out = Join-Path $src 'out/Release'
+          # `ninja -t commands` prints one command per edge in the `chrome`
+          # target's transitive closure. It is tried through depot_tools'
+          # `ninja` first and through `autoninja` second, because which of the
+          # two front-ends is present depends on what the sync installed; the
+          # count is a nice-to-have, so a failure only costs the number.
+          $total = $null
+          foreach ($tool in @('ninja', 'autoninja')) {
+            try {
+              $lines = & $tool -C $out -t commands chrome 2>$null
+              if ($LASTEXITCODE -eq 0 -and $null -ne $lines) {
+                $total = @($lines).Count
+                break
+              }
+            } catch {
+              Write-Host "$tool -t commands failed: $($_.Exception.Message)"
+            }
+          }
+          $freeGb = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$env:AURELIA_BUILD_VOLUME'" | ForEach-Object { [math]::Round($_.FreeSpace / 1GB, 1) }
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) 'artifacts/hosted-constrained-graph.json'),
+            ("{`"totalEdges`":$(if ($total -eq $null) { 'null' } else { $total }),`"freeGbAfterGnGen`":$freeGb}`n"))
+          Add-Content $env:GITHUB_STEP_SUMMARY "- build graph: $(if ($total -eq $null) { 'could not be counted' } else { "$total edge(s) in the `chrome` target" })"
+          Add-Content $env:GITHUB_STEP_SUMMARY "- free disk on $env:AURELIA_BUILD_VOLUME after gn gen: $freeGb GB"
+
+      - name: Compile (bounded, monitored, aborted before the volume fills)
+        id: compile
+        if: steps.graph.outcome == 'success'
+        shell: pwsh
+        timeout-minutes: 165
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
+          $env:NINJA_SUMMARIZE_BUILD = '1'
+          New-Item -ItemType Directory -Force -Path 'artifacts/logs' | Out-Null
+
+          $budget = [int]$env:EXPERIMENT_COMPILE_BUDGET_MINUTES
+          $reserve = [int]$env:EXPERIMENT_DISK_RESERVE_GB
+          $buildArgs = @(
+            'tools/chromium/build.mjs',
+            '--dest', "$env:AURELIA_CHROMIUM_DEST",
+            '--profile', 'low-resource',
+            '--jobs', "$env:EXPERIMENT_JOBS",
+            '--skip-sync',
+            '--only', 'compile',
+            '--log-dir', (Join-Path (Get-Location) 'artifacts/logs')
+          )
+          $proc = Start-Process -FilePath 'node' -ArgumentList $buildArgs `
+            -WorkingDirectory (Get-Location) -PassThru -NoNewWindow `
+            -RedirectStandardOutput 'artifacts/logs/compile-driver.out.log' `
+            -RedirectStandardError  'artifacts/logs/compile-driver.err.log'
+          Write-Host "compile driver pid $($proc.Id); budget ${budget} min; disk reserve ${reserve} GB"
+
+          $started = Get-Date
+          $deadline = $started.AddMinutes($budget)
+          $samples = @()
+          $ninjaLog = Join-Path $env:AURELIA_CHROMIUM_DEST 'src/out/Release/.ninja_log'
+          $outLog = 'artifacts/logs/compile-driver.out.log'
+          $errLog = 'artifacts/logs/compile-driver.err.log'
+          $stopReason = 'completed'
+          while ($true) {
+            Start-Sleep -Seconds 60
+            # Two independent progress sources, because which one is written
+            # depends on the build front-end: ninja's own `.ninja_log` (one
+            # line per finished edge after the "# ninja log v5" header) and the
+            # `[done/total]` progress line both ninja and siso print.
+            $edges = 0
+            if (Test-Path $ninjaLog) {
+              try {
+                $reader = [System.IO.File]::OpenText($ninjaLog)
+                while ($null -ne $reader.ReadLine()) { $edges += 1 }
+                $reader.Close()
+                $edges = [Math]::Max(0, $edges - 1)
+              } catch { $edges = 0 }
+            }
+            $progress = $null
+            foreach ($log in @($errLog, $outLog)) {
+              if (-not (Test-Path $log)) { continue }
+              try {
+                $hits = @(Select-String -Path $log -Pattern '\[(\d+)\s*/\s*(\d+)\]' -AllMatches -ErrorAction SilentlyContinue)
+                if ($hits.Count -gt 0) {
+                  $last = $hits[-1]
+                  $match = [regex]::Match($last.Line.Replace([string][char]0, ''), '\[(\d+)\s*/\s*(\d+)\]')
+                  if ($match.Success) {
+                    $progress = [ordered]@{
+                      done  = [int]$match.Groups[1].Value
+                      total = [int]$match.Groups[2].Value
+                    }
+                    if ($progress.done -gt $edges) { $edges = $progress.done }
+                    break
+                  }
+                }
+              } catch { }
+            }
+            $volume = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$env:AURELIA_BUILD_VOLUME'"
+            $freeGb = [math]::Round($volume.FreeSpace / 1GB, 1)
+            $os = Get-CimInstance Win32_OperatingSystem
+            $samples += [ordered]@{
+              at           = (Get-Date).ToUniversalTime().ToString('o')
+              elapsedMin   = [math]::Round(((Get-Date) - $started).TotalMinutes, 1)
+              edgesDone    = $edges
+              progressDone = $(if ($progress -eq $null) { $null } else { $progress.done })
+              progressTotal= $(if ($progress -eq $null) { $null } else { $progress.total })
+              freeDiskGb   = $freeGb
+              freeRamGb    = [math]::Round($os.FreePhysicalMemory * 1KB / 1GB, 1)
+            }
+            if ($proc.HasExited) { break }
+            if ((Get-Date) -ge $deadline) {
+              $stopReason = "compile budget of $budget minute(s) exhausted"
+              break
+            }
+            if ($freeGb -lt $reserve) {
+              $stopReason = "free disk on $env:AURELIA_BUILD_VOLUME fell below the ${reserve} GB emergency reserve ($freeGb GB)"
+              break
+            }
+          }
+          if (-not $proc.HasExited) {
+            Write-Host "stopping the compile: $stopReason"
+            & taskkill /pid $proc.Id /t /f 2>$null | Out-Null
+            $proc.WaitForExit(120000) | Out-Null
+          }
+          if (-not $proc.HasExited) { $proc.Kill() }
+          $exitCode = $proc.ExitCode
+          if ($exitCode -eq 0) { $stopReason = 'completed' }
+
+          $last = $samples[-1]
+          $result = [ordered]@{
+            exitCode    = $exitCode
+            compiled    = ($exitCode -eq 0)
+            stopReason  = $stopReason
+            jobs        = [int]$env:EXPERIMENT_JOBS
+            budgetMin   = $budget
+            elapsedMin  = [math]::Round(((Get-Date) - $started).TotalMinutes, 1)
+            edgesDone   = $(if ($last -eq $null) { 0 } else { $last.edgesDone })
+            lastSample  = $last
+            samples     = $samples
+          }
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) 'artifacts/hosted-constrained-compile.json'),
+            ($result | ConvertTo-Json -Depth 5) + "`n")
+          "compiled=$($result.compiled.ToString().ToLower())" | Add-Content $env:GITHUB_OUTPUT
+          "stopReason=$stopReason" | Add-Content $env:GITHUB_OUTPUT
+          Add-Content $env:GITHUB_STEP_SUMMARY "- compile: exit=$exitCode, stopped because: $stopReason"
+          if ($last -ne $null) {
+            Add-Content $env:GITHUB_STEP_SUMMARY "  - $($last.edgesDone) edge(s) completed in $($result.elapsedMin) min at -j $env:EXPERIMENT_JOBS; free disk $($last.freeDiskGb) GB, free RAM $($last.freeRamGb) GB"
+          }
+
+      - name: Stage, smoke test, record and package the browser
+        id: validate
+        if: steps.compile.outputs.compiled == 'true'
+        shell: pwsh
+        timeout-minutes: 40
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
+          node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --aurelia-revision "$env:GITHUB_SHA" --only stage,smoke-test,record,package --log-dir artifacts/logs
+          if ($LASTEXITCODE -ne 0) { throw "the built browser did not stage or smoke-test cleanly (exit $LASTEXITCODE)" }
+          # Copy the packaged runtime and its manifest next to the reports so
+          # a single artifact carries the whole result.
+          $built = Join-Path $env:AURELIA_CHROMIUM_DEST 'artifacts'
+          if (Test-Path $built) {
+            Get-ChildItem $built -File -Filter '*.zip' | ForEach-Object { Copy-Item $_.FullName 'artifacts/' }
+            Get-ChildItem $built -File -Filter '*.sha256' | ForEach-Object { Copy-Item $_.FullName 'artifacts/' }
+          }
+          $manifest = Join-Path $built 'staged/build-manifest.json'
+          if (Test-Path $manifest) { Copy-Item $manifest 'artifacts/build-manifest.json' }
+          $smoke = Join-Path $built 'smoke-test.json'
+          if (Test-Path $smoke) { Copy-Item $smoke 'artifacts/smoke-test.json' }
+          Add-Content $env:GITHUB_STEP_SUMMARY '- **COMPILED**: the smoke test passed and the runtime is packaged (UNSIGNED).'
+
+      - name: Collect the evidence and classify the outcome
+        id: evidence
+        if: always()
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
+          $workspace = (Get-Location).Path
+          $dest = $env:AURELIA_CHROMIUM_DEST
+          if ([string]::IsNullOrWhiteSpace($dest)) { $dest = 'not-chosen' }
+          $src = Join-Path $dest 'src'
+
+          function Read-JsonFile($path) {
+            if (Test-Path $path) {
+              try { return (Get-Content $path -Raw | ConvertFrom-Json) } catch { return $null }
+            }
+            return $null
+          }
+
+          $preflight = Read-JsonFile 'artifacts/hosted-constrained-preflight.json'
+          $verdict   = Read-JsonFile 'artifacts/hosted-constrained-verdict.json'
+          $reclaim   = Read-JsonFile 'artifacts/hosted-constrained-disk-reclaim.json'
+          $afterSync = Read-JsonFile 'artifacts/hosted-constrained-disk-after-sync.json'
+          $graph     = Read-JsonFile 'artifacts/hosted-constrained-graph.json'
+          $compile   = Read-JsonFile 'artifacts/hosted-constrained-compile.json'
+          $capabilities = Read-JsonFile 'artifacts/runner-capabilities.json'
+
+          # --- the last stage that actually finished -------------------------
+          $stages = [ordered]@{
+            'measure the runner'       = (Test-Path 'artifacts/hosted-constrained-preflight.json')
+            'apply the experiment floor' = (($verdict -ne $null) -and ($verdict.ok -eq $true))
+            'reclaim disk'             = ($reclaim -ne $null)
+            'gclient sync'             = ((Test-Path (Join-Path $src '.git')) -and ($afterSync -ne $null))
+            'verify patches'           = (Test-Path 'artifacts/logs/verify-patches.log')
+            'install overlay + patches' = ((Test-Path (Join-Path $src 'chrome/browser/ui/webui/aurelia/aurelia_ui.cc')) -and (Test-Path (Join-Path $src 'chrome/browser/resources/aurelia/aurelia.html')))
+            'gn gen'                   = (Test-Path (Join-Path $src 'out/Release/build.ninja'))
+            'autoninja chrome'         = (($compile -ne $null) -and ($compile.compiled -eq $true))
+            'stage + smoke test'       = (Test-Path 'artifacts/smoke-test.json')
+            'package'                  = ((Get-ChildItem 'artifacts' -Filter '*.zip' -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0)
+          }
+          $lastStage = 'none'
+          foreach ($name in $stages.Keys) { if ($stages[$name]) { $lastStage = $name } }
+
+          # --- the first meaningful error ------------------------------------
+          $errorPatterns = '(?i)(fatal error|error [A-Z]+[0-9]+|: error |ninja: build stopped|out of memory|Command .* failed|Traceback \(most recent call last\)|gclient sync exited|exited with code)'
+          $firstError = $null
+          $logOrder = @(
+            'artifacts/logs/last-error.txt',
+            'artifacts/logs/compile-driver.err.log',
+            'artifacts/logs/compile.log',
+            'artifacts/logs/compile-driver.out.log',
+            'artifacts/logs/autoninja.log',
+            'artifacts/logs/gn.log',
+            'artifacts/logs/sync.log',
+            'artifacts/logs/install-overlay.log',
+            'artifacts/logs/verify-patches.log',
+            'artifacts/logs/package.log',
+            'artifacts/logs/smoke-test.log'
+          )
+          foreach ($log in $logOrder) {
+            if (-not (Test-Path $log)) { continue }
+            $hits = @(Select-String -Path $log -Pattern $errorPatterns -List -ErrorAction SilentlyContinue)
+            if ($hits.Count -gt 0) {
+              $firstError = [ordered]@{ log = $log; line = $hits[0].Line.Trim() }
+              break
+            }
+          }
+
+          # --- classification -------------------------------------------------
+          $classification = 'UNKNOWN'
+          $classificationReason = ''
+          if (($verdict -ne $null) -and ($verdict.ok -eq $false)) {
+            $classification = 'RESOURCE LIMIT'
+            $classificationReason = (@($verdict.problems) -join '; ')
+          } elseif (($stages['measure the runner'] -eq $false)) {
+            $classification = 'UNKNOWN'
+            $classificationReason = 'the runner was never measured'
+          } elseif ($stages['gclient sync'] -eq $false) {
+            if ($firstError -ne $null -and $firstError.line -match '(?i)(network|fetch|curl|TLS|resolve|timed out)') {
+              $classification = 'NETWORK'
+            } elseif ($firstError -ne $null -and $firstError.line -match '(?i)(depot_tools)') {
+              $classification = 'DEPOT_TOOLS'
+            } elseif ($firstError -ne $null -and $firstError.line -match '(?i)(gclient)') {
+              $classification = 'GCLIENT'
+            } else {
+              $classification = 'UNKNOWN'
+            }
+            $classificationReason = if ($firstError -eq $null) { 'the sync did not finish' } else { $firstError.line }
+          } elseif ($stages['verify patches'] -eq $false) { $classification = 'PATCH'; $classificationReason = 'the patch set did not verify against the pinned revision' }
+          elseif ($stages['install overlay + patches'] -eq $false) { $classification = 'PATCH'; $classificationReason = 'the overlay or patch series did not apply' }
+          elseif ($stages['gn gen'] -eq $false) {
+            if ($firstError -ne $null -and $firstError.line -match '(?i)(toolchain|cl\.exe|SDK|MSVC)') { $classification = 'TOOLCHAIN' } else { $classification = 'GN' }
+            $classificationReason = if ($firstError -eq $null) { 'gn gen did not produce build.ninja' } else { $firstError.line }
+          } elseif ($stages['autoninja chrome'] -eq $false) {
+            $stopReason = if ($compile -ne $null) { $compile.stopReason } else { 'the compile stage never started' }
+            if ($stopReason -match 'budget') { $classification = 'TIME/QUOTA LIMIT' }
+            elseif ($stopReason -match 'emergency reserve') { $classification = 'RESOURCE LIMIT' }
+            elseif ($firstError -ne $null -and $firstError.line -match '(?i)(out of memory|LNK1102|LNK1318|fatal error C1060)') { $classification = 'RESOURCE LIMIT' }
+            elseif ($firstError -ne $null -and $firstError.line -match '(?i)(LNK[0-9]+)') { $classification = 'LINK' }
+            elseif ($firstError -ne $null -and $firstError.line -match '(?i)(aurelia)') { $classification = 'AURELIA C++' }
+            else { $classification = 'UNKNOWN' }
+            $classificationReason = $stopReason
+          } elseif ($stages['stage + smoke test'] -eq $false) { $classification = 'SMOKE TEST'; $classificationReason = 'the browser was built but the smoke test did not pass' }
+          elseif ($stages['package'] -eq $false) { $classification = 'PACKAGING'; $classificationReason = 'the runtime was not packaged' }
+          else { $classification = 'SUCCEEDED'; $classificationReason = 'compiled, smoke-tested and packaged' }
+
+          # --- elapsed time ----------------------------------------------------
+          $elapsedMin = $null
+          if (-not [string]::IsNullOrWhiteSpace($env:EXPERIMENT_STARTED_AT)) {
+            try {
+              $startedAt = [DateTime]::Parse($env:EXPERIMENT_STARTED_AT).ToUniversalTime()
+              $elapsedMin = [math]::Round(((Get-Date).ToUniversalTime() - $startedAt).TotalMinutes, 1)
+            } catch { $elapsedMin = $null }
+          }
+
+          $depotToolsSha = $null
+          $depotToolsDir = Join-Path $dest 'depot_tools'
+          if (Test-Path (Join-Path $depotToolsDir '.git')) {
+            $depotToolsSha = (& git -C $depotToolsDir rev-parse HEAD 2>$null | Out-String).Trim()
+          }
+          $chromiumSha = $null
+          if (Test-Path (Join-Path $src '.git')) {
+            $chromiumSha = (& git -C $src rev-parse HEAD 2>$null | Out-String).Trim()
+          }
+          $effectiveArgs = $null
+          if (Test-Path (Join-Path $src 'out/Release/args.gn')) {
+            $effectiveArgs = (Get-Content (Join-Path $src 'out/Release/args.gn') -Raw -replace '\s+', ' ').Trim()
+          } elseif (Test-Path 'artifacts/args-effective.gn') {
+            $effectiveArgs = (Get-Content 'artifacts/args-effective.gn' -Raw -replace '\s+', ' ').Trim()
+          }
+
+          $evidence = [ordered]@{
+            experiment            = $env:EXPERIMENT_MODE
+            reason                = $env:EXPERIMENT_REASON
+            runUrl                = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            repository            = $env:GITHUB_REPOSITORY
+            startedAt             = $env:EXPERIMENT_STARTED_AT
+            elapsedMinutes        = $elapsedMin
+            classification        = $classification
+            classificationReason  = $classificationReason
+            lastSuccessfulStage   = $lastStage
+            firstMeaningfulError  = $firstError
+            runner                = [ordered]@{
+              image                = $(if ($preflight -ne $null) { "$($preflight.runner.imageOs) / $($preflight.runner.imageVersion)" } else { 'unknown' })
+              cpu                  = $(if ($preflight -ne $null) { $preflight.cpu } else { $null })
+              ramGb                = $(if ($preflight -ne $null) { $preflight.memory.totalGb } else { $null })
+              volumes              = $(if ($preflight -ne $null) { $preflight.volumes } else { $null })
+              chosenVolume         = $(if ($preflight -ne $null) { $preflight.chosenVolume } else { $null })
+              pagefileGb           = $(if ($preflight -ne $null) { $preflight.pagefile.allocatedGb } else { $null })
+              visualStudio         = $(if ($preflight -ne $null) { $preflight.tooling.visualStudio } else { $null })
+              windowsSdks          = $(if ($preflight -ne $null) { $preflight.tooling.windowsSdks } else { $null })
+              git                  = $(if ($preflight -ne $null) { $preflight.tooling.git } else { $null })
+              node                 = $(if ($preflight -ne $null) { $preflight.tooling.node } else { $null })
+            }
+            referenceMinimums     = $(if ($capabilities -ne $null) { $capabilities.requirements } else { $null })
+            referenceShortfall    = $(if ($capabilities -ne $null) { @($capabilities.problems) } else { $null })
+            disk                  = [ordered]@{
+              initialVolumes       = $(if ($reclaim -ne $null) { $reclaim.before } else { $(if ($preflight -ne $null) { ($preflight.volumes | ForEach-Object { "$($_.drive)=$($_.freeGb)GB" }) -join ', ' } else { $null }) })
+              afterCleanup         = $(if ($reclaim -ne $null) { $reclaim.after } else { $null })
+              reclaimed            = $(if ($reclaim -ne $null) { $reclaim.removed } else { $null })
+              afterSyncGb          = $(if ($afterSync -ne $null) { $afterSync.freeGb } else { $null })
+              afterGnGenGb         = $(if ($graph -ne $null) { $graph.freeGbAfterGnGen } else { $null })
+              duringCompile        = $(if ($compile -ne $null) { $compile.samples } else { $null })
+              afterCompileGb       = $(if ($compile -ne $null -and $compile.lastSample -ne $null) { $compile.lastSample.freeDiskGb } else { $null })
+            }
+            revisions             = [ordered]@{
+              aurelia              = $env:GITHUB_SHA
+              chromium             = $chromiumSha
+              depotTools           = $depotToolsSha
+            }
+            build                 = [ordered]@{
+              gnArgsFile           = 'config/gn/win-x64-low-resource.gn'
+              effectiveArgs        = $effectiveArgs
+              jobs                 = [int]$env:EXPERIMENT_JOBS
+              plannedJobs          = $(if ($verdict -ne $null) { $verdict.jobs } else { $null })
+              concurrentLinks      = 1
+              totalEdges           = $(if ($graph -ne $null) { $graph.totalEdges } else { $null })
+              edgesCompleted       = $(if ($compile -ne $null) { $compile.edgesDone } else { $null })
+              compileElapsedMin    = $(if ($compile -ne $null) { $compile.elapsedMin } else { $null })
+              compileExitCode      = $(if ($compile -ne $null) { $compile.exitCode } else { $null })
+              stopReason           = $(if ($compile -ne $null) { $compile.stopReason } else { $null })
+            }
+            states                = [ordered]@{
+              gnConfigured         = ($stages['gn gen'])
+              compiled             = ($stages['autoninja chrome'])
+              runtimeIntegrated    = ($stages['stage + smoke test'])
+              tested               = ($stages['stage + smoke test'])
+              verified             = $false
+            }
+            ladder                = @(
+              'gn gen succeeds     -> GN CONFIGURED',
+              'autoninja succeeds  -> COMPILED',
+              'browser launches    -> RUNTIME INTEGRATED',
+              'smoke test passes   -> TESTED',
+              'physical Windows test -> VERIFIED (owner-run, real hardware)'
+            )
+          }
+          [System.IO.File]::WriteAllText(
+            (Join-Path $workspace 'artifacts/hosted-constrained-evidence.json'),
+            ($evidence | ConvertTo-Json -Depth 8) + "`n")
+
+          "classification=$classification" | Add-Content $env:GITHUB_OUTPUT
+          @(
+            '',
+            '### HOSTED_CONSTRAINED_EXPERIMENT - verdict',
+            '',
+            "- classification: **$classification**",
+            "- reason: $classificationReason",
+            "- last successful stage: $lastStage",
+            "- elapsed: $elapsedMin minute(s)",
+            "- states: gnConfigured=$($evidence.states.gnConfigured) compiled=$($evidence.states.compiled) runtimeIntegrated=$($evidence.states.runtimeIntegrated) tested=$($evidence.states.tested) verified=false",
+            '',
+            'The artifact is UNSIGNED (signed=false, productionReady=false) if one was produced at all: never a production build.',
+            '',
+            'The documented reference builder minimums (8 cores / 32 GB / 150 GB) are unchanged.'
+          ) | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload the evidence and any artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hosted-constrained-experiment-${{ github.run_id }}
+          path: |
+            artifacts/**/*.json
+            artifacts/**/*.txt
+            artifacts/**/*.log
+            artifacts/**/*.gn
+            artifacts/**/*.zip
+            artifacts/**/*.sha256
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: State the result honestly
+        if: always()
+        shell: pwsh
+        run: |
+          $classification = '${{ steps.evidence.outputs.classification }}'
+          if ($classification -eq 'SUCCEEDED') {
+            Write-Host 'HOSTED_CONSTRAINED_EXPERIMENT: COMPILED and TESTED on a hosted runner.'
+            exit 0
+          }
+          Write-Host "::error title=HOSTED_CONSTRAINED_EXPERIMENT: $classification::see artifacts/hosted-constrained-evidence.json"
+          Write-Host "HOSTED_CONSTRAINED_EXPERIMENT: the browser was not produced. Classification: $classification"
+          exit 1
