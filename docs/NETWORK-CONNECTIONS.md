@@ -12,7 +12,7 @@ per-feature toggles exist rather than a blanket "offline mode" claim.
 
 Status legend: **NOT VERIFIED** means no build exists yet to observe traffic
 from. Automated verification is planned in M3
-(see [TESTING.md](TESTING.md#privacy-and-network-tests)).
+(see [TESTING.md](TESTING.md#6-privacy-and-network-tests-planned-m3)).
 
 ## Intentional default connections
 

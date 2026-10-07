@@ -27,6 +27,7 @@ import {
 } from '../chromium/verify-patches.mjs';
 import { gnArgFiles, validateGnArgs } from '../chromium/gn-args.mjs';
 import { checkContrast } from '../design/check-contrast.mjs';
+import { checkDocsLinks } from './check-docs-links.mjs';
 import { compareWorkflows } from './install-workflows.mjs';
 import { checkWorkflows } from './workflow-policy.mjs';
 import { scanRepository } from './secret-scan.mjs';
@@ -212,6 +213,15 @@ export function runFastChecks({ log = console.log } = {}) {
         : `run node tools/ci/install-workflows.mjs (${drifted.join(', ')})`,
     );
   }
+
+  const docLinks = checkDocsLinks();
+  record(
+    'internal documentation links resolve',
+    docLinks.ok,
+    docLinks.ok
+      ? `${docLinks.checked} link(s) checked`
+      : docLinks.problems.join('; '),
+  );
 
   const findings = scanRepository();
   record(
