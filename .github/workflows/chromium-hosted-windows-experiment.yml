@@ -98,10 +98,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # Native tools write progress and warnings to stderr; with
-          # $ErrorActionPreference='Stop' the first stderr line becomes a
-          # terminating error, which made the first hosted run fail inside an
-          # otherwise successful step. Exit codes are checked explicitly.
+          # Native tools write progress and warnings to stderr, and whether
+          # that becomes a terminating error under $ErrorActionPreference='Stop'
+          # depends on the PowerShell version. Disable the interaction and check
+          # exit codes explicitly. (The first two hosted runs actually died from
+          # a Windows-incompatible entry-point check inside the Node tools, not
+          # from stderr: see tools/lib/entry.mjs.)
           $PSNativeCommandUseErrorActionPreference = $false
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
 
@@ -198,10 +200,9 @@ jobs:
         shell: pwsh
         run: |
           # Native tools (node, gn, ninja) write progress and warnings to
-          # stderr. With $ErrorActionPreference='Stop' PowerShell turns the
-          # first stderr line into a terminating error, which made the first
-          # hosted run fail inside an otherwise successful step. Exit codes are
-          # therefore checked explicitly below instead.
+          # stderr. Whether $ErrorActionPreference='Stop' turns that into a
+          # terminating error depends on the PowerShell version, so the
+          # interaction is disabled and exit codes are checked by hand instead.
           $PSNativeCommandUseErrorActionPreference = $false
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path "$env:AURELIA_CHROMIUM_DEST" | Out-Null

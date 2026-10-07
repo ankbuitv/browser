@@ -40,6 +40,7 @@ import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
 import { loadConfig } from './lib/config.mjs';
+import { isMainModule } from '../lib/entry.mjs';
 
 export const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -486,9 +487,7 @@ function parseArgs(argv) {
   };
 }
 
-const isMain =
-  process.argv[1] !== undefined &&
-  import.meta.url === `file://${path.resolve(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 
 if (isMain) {
   const options = parseArgs(process.argv.slice(2));

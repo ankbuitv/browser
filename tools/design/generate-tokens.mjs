@@ -17,6 +17,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isMainModule } from '../lib/entry.mjs';
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -219,9 +220,7 @@ export function generate({ check = false, log = console.log } = {}) {
   return { stale };
 }
 
-const isMain =
-  process.argv[1] !== undefined &&
-  import.meta.url === `file://${path.resolve(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 
 if (isMain) {
   try {

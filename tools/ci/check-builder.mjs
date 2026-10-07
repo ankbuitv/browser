@@ -23,6 +23,7 @@ import { existsSync, mkdirSync, statfsSync, writeFileSync } from 'node:fs';
 import { cpus, platform, release, totalmem, arch } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isMainModule } from '../lib/entry.mjs';
 
 export const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -199,9 +200,7 @@ export function checkBuilder({ dest, config, log = () => {} } = {}) {
   };
 }
 
-const isMain =
-  process.argv[1] !== undefined &&
-  import.meta.url === `file://${path.resolve(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 
 if (isMain) {
   const argv = process.argv.slice(2);

@@ -50,12 +50,20 @@ threats, the controls, and what is deliberately not automated.
 > with the `actions: write` permission. GitHub also only offers "Run workflow"
 > for a workflow whose file exists on the default branch.
 >
-> **PowerShell and native stderr:** the first hosted run failed _inside_ a
-> step although the tool it called exited 0 — with `$ErrorActionPreference =
-'Stop'`, PowerShell turns the first line a native command writes to stderr into
-> a terminating error. Every step that invokes node/gn/ninja therefore sets
-> `$PSNativeCommandUseErrorActionPreference = $false` and checks `$LASTEXITCODE`
-> explicitly; a test keeps that true for the experiment workflow.
+> **Windows entry points:** both of the first hosted runs failed _inside_ a step
+> although the tool it called exited 0. The cause was not the runner: every tool
+> in `tools/` decided whether it was the entry point with
+> `` import.meta.url === `file://${path.resolve(process.argv[1])}` ``, which is
+> never true on Windows (`file://D:\...` never equals `file:///D:/...`). The
+> tool silently did nothing, wrote no record, and the step died on the missing
+> file. Entry detection now goes through `tools/lib/entry.mjs` and a test keeps
+> the naive idiom out of the repository.
+>
+> **PowerShell and native commands:** steps that invoke node, gn or ninja set
+> `$PSNativeCommandUseErrorActionPreference = $false` and check `$LASTEXITCODE`
+> explicitly. Native commands write progress and warnings to stderr, and with
+> `$ErrorActionPreference = 'Stop'` that interaction is PowerShell-version
+> dependent; a test keeps both properties true for the experiment workflow.
 >
 > **Workflow files are validated by GitHub, not by us:** an invalid file is shown
 > in the Actions list by its path instead of its `name:`, and the push that

@@ -31,6 +31,7 @@ import { checkDocsLinks } from './check-docs-links.mjs';
 import { compareWorkflows } from './install-workflows.mjs';
 import { checkWorkflows } from './workflow-policy.mjs';
 import { scanRepository } from './secret-scan.mjs';
+import { isMainModule } from '../lib/entry.mjs';
 
 /** File extensions allowed inside the Chromium overlay. */
 export const ALLOWED_OVERLAY_EXTENSIONS = new Set([
@@ -237,9 +238,7 @@ export function runFastChecks({ log = console.log } = {}) {
   return { ok: checks.every((check) => check.ok), checks };
 }
 
-const isMain =
-  process.argv[1] !== undefined &&
-  import.meta.url === `file://${path.resolve(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 
 if (isMain) {
   const result = runFastChecks();

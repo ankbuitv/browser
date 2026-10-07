@@ -29,6 +29,7 @@ import path from 'node:path';
 import { REPO_ROOT, loadConfig, CONFIG_PATH } from './lib/config.mjs';
 import { installOverlay } from './install-overlay.mjs';
 import { run } from './lib/upstream.mjs';
+import { isMainModule } from '../lib/entry.mjs';
 
 const CHROMIUM_SOURCE_URL =
   'https://chromium.googlesource.com/chromium/src.git';
@@ -279,9 +280,7 @@ function main(argv) {
   return 0;
 }
 
-const isMain =
-  process.argv[1] !== undefined &&
-  import.meta.url === `file://${path.resolve(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 
 if (isMain) {
   try {

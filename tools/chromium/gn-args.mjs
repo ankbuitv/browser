@@ -17,6 +17,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isMainModule } from '../lib/entry.mjs';
 
 export const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -159,9 +160,7 @@ export function gnArgFiles(directory = GN_ARGS_DIR) {
     .map((name) => path.join(directory, name));
 }
 
-const isMain =
-  process.argv[1] !== undefined &&
-  import.meta.url === `file://${path.resolve(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 
 if (isMain) {
   const argv = process.argv.slice(2);

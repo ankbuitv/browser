@@ -36,6 +36,7 @@ import path from 'node:path';
 
 import { REPO_ROOT, loadConfig } from './lib/config.mjs';
 import { validateGnArgs } from './gn-args.mjs';
+import { isMainModule } from '../lib/entry.mjs';
 
 export const MANIFEST_NAME = 'build-manifest.json';
 export const SUMS_NAME = 'SHA256SUMS.txt';
@@ -342,9 +343,7 @@ export function recordSmokeTest({ dest, report }) {
   return manifest;
 }
 
-const isMain =
-  process.argv[1] !== undefined &&
-  import.meta.url === `file://${path.resolve(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 
 if (isMain) {
   const argv = process.argv.slice(2);

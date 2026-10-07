@@ -23,6 +23,7 @@ import {
   sha256,
 } from './lib/upstream.mjs';
 import { parsePatch, findPathProblems } from './lib/patch.mjs';
+import { isMainModule } from '../lib/entry.mjs';
 
 export const PATCH_FILE_NAME = '0001-aurelia-webui-and-resources.patch';
 
@@ -203,9 +204,7 @@ export function generatePatch({ checkoutPath, log = () => {} } = {}) {
   };
 }
 
-const isMain =
-  process.argv[1] !== undefined &&
-  import.meta.url === `file://${path.resolve(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 
 if (isMain) {
   const checkoutIndex = process.argv.indexOf('--checkout');

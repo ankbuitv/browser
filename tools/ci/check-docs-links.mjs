@@ -15,6 +15,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isMainModule } from '../lib/entry.mjs';
 
 export const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -150,9 +151,7 @@ export function checkDocsLinks({ root = REPO_ROOT } = {}) {
   return { ok: problems.length === 0, checked, external, problems };
 }
 
-const isMain =
-  process.argv[1] !== undefined &&
-  import.meta.url === `file://${path.resolve(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 
 if (isMain) {
   const result = checkDocsLinks();

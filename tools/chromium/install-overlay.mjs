@@ -20,6 +20,7 @@ import { loadConfig, overlayDir, patchesDir } from './lib/config.mjs';
 import { collectOverlayFiles } from './verify-patches.mjs';
 import { listPatchFiles } from './verify-patches.mjs';
 import { run, sha256 } from './lib/upstream.mjs';
+import { isMainModule } from '../lib/entry.mjs';
 
 export class CheckoutError extends Error {
   constructor(message) {
@@ -146,9 +147,7 @@ export function installOverlay({
   return { copied, skipped, applied, conflicts };
 }
 
-const isMain =
-  process.argv[1] !== undefined &&
-  import.meta.url === `file://${path.resolve(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 
 if (isMain) {
   const checkoutIndex = process.argv.indexOf('--checkout');
