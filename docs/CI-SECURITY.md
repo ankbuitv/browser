@@ -50,6 +50,13 @@ threats, the controls, and what is deliberately not automated.
 > with the `actions: write` permission. GitHub also only offers "Run workflow"
 > for a workflow whose file exists on the default branch.
 >
+> **PowerShell and native stderr:** the first hosted run failed _inside_ a
+> step although the tool it called exited 0 — with `$ErrorActionPreference =
+'Stop'`, PowerShell turns the first line a native command writes to stderr into
+> a terminating error. Every step that invokes node/gn/ninja therefore sets
+> `$PSNativeCommandUseErrorActionPreference = $false` and checks `$LASTEXITCODE`
+> explicitly; a test keeps that true for the experiment workflow.
+>
 > **Workflow files are validated by GitHub, not by us:** an invalid file is shown
 > in the Actions list by its path instead of its `name:`, and the push that
 > introduced it gets a zero-second "Invalid workflow file" failure with the exact

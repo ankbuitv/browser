@@ -279,6 +279,36 @@ describe('hosted Windows experiment', () => {
     expect(workflow).toContain('env.EXPERIMENT_MODE ==');
   });
 
+  it('survives native stderr from node, gn and ninja', () => {
+    const workflow = read();
+    // The first hosted run failed inside a step whose tool exited 0: with
+    // $ErrorActionPreference='Stop' PowerShell turns the first line a native
+    // command writes to stderr into a terminating error. Every step that runs
+    // a native tool must neutralise that and check the exit code itself.
+    const lines = workflow.split('\n');
+    const starts = lines
+      .map((line, index) => (line.startsWith('      - name: ') ? index : -1))
+      .filter((index) => index !== -1);
+    starts.push(lines.length);
+    const native = /(?:node tools\/|& node |& gn |autoninja -C)/;
+    for (let index = 0; index < starts.length - 1; index += 1) {
+      const block = lines.slice(starts[index], starts[index + 1]).join('\n');
+      if (!native.test(block)) continue;
+      const name = lines[starts[index]].slice('      - name: '.length);
+      expect(block, `${name}: native stderr would fail the step`).toContain(
+        '$PSNativeCommandUseErrorActionPreference = $false',
+      );
+      // The measurement step probes optional tools (python, VS, SDKs) and
+      // records absences in the report instead of failing, so only the switch
+      // applies there; every step that performs real work checks its exit code.
+      if (name !== 'Measure the runner') {
+        expect(block, `${name}: no explicit exit-code check`).toContain(
+          '$LASTEXITCODE',
+        );
+      }
+    }
+  });
+
   it('never weakens the browser, needs no secret, and always keeps the evidence', () => {
     const workflow = read();
     expect(workflow).not.toContain('--no-sandbox');
