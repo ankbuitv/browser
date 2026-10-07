@@ -58,6 +58,16 @@ does not give a Chromium fork what it needs.
 | Larger hosted runners           | Would address size, **not** persistence or quota. Not attempted.                                                                                                                                                                                                                                                                                 |
 | Self-hosted Windows x64 builder | **Required.** Labels `[self-hosted, windows, x64, aurelia-chromium]`; `tools/ci/check-builder.mjs` refuses to start on a machine below the minimums, so a misprovisioned runner fails in seconds with a precise message instead of failing in hour five. Run it before provisioning: `node tools/ci/check-builder.mjs --dest <checkout-parent>`. |
 
+## The experiment that will answer this with numbers
+
+`tools/ci/workflows/chromium-hosted-windows-experiment.yml` (manual dispatch
+only) measures a hosted Windows runner - image, CPU, RAM, free disk, VS/MSVC,
+Windows SDKs - classifies it with `tools/ci/check-builder.mjs` against the
+documented minimums, and **stops before syncing anything** when the verdict is
+RESOURCE LIMIT. Only a machine that meets the minimums is allowed one
+controlled build attempt. The minimums are not lowered to make the run happen:
+a cheap, early RESOURCE LIMIT with measured numbers is the useful outcome.
+
 ## The same pipeline without GitHub
 
 `tools/chromium/build.mjs` runs the identical stages locally (`--dry-run` prints

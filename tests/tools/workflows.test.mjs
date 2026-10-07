@@ -37,6 +37,7 @@ describe('workflow deployment', () => {
     const { workflows } = compareWorkflows({ sourceDir: CANONICAL_DIR });
     expect(workflows).toEqual([
       'chromium-heavy-build-windows.yml',
+      'chromium-hosted-windows-experiment.yml',
       'chromium-update-watch.yml',
       'ci-fast.yml',
     ]);
@@ -145,5 +146,86 @@ describe('Windows heavy build pipeline', () => {
     expect(workflow).not.toContain('--allow-disabled-sandbox');
     expect(workflow).not.toContain('secrets.');
     expect(workflow).toContain('permissions:\n  contents: read');
+  });
+});
+
+describe('hosted Windows experiment', () => {
+  const read = () =>
+    readFileSync(
+      path.join(CANONICAL_DIR, 'chromium-hosted-windows-experiment.yml'),
+      'utf8',
+    );
+
+  it('is a manual, hosted-only experiment that never replaces the heavy build', () => {
+    const workflow = read();
+    expect(workflow).toContain('workflow_dispatch:');
+    // Hosted, and only hosted: this is the experiment, not the product path.
+    expect(workflow).toContain('runs-on: windows-latest');
+    // The header may *refer* to the self-hosted production path, but no job
+    // here may actually run on it.
+    expect(workflow).not.toMatch(/runs-on:.*self-hosted/);
+    // No schedule: it must not consume quota on its own.
+    expect(workflow).not.toContain('schedule:');
+  });
+
+  it('measures before it syncs, and stops before syncing when too small', () => {
+    const workflow = read();
+    const measure = workflow.indexOf('hosted-preflight.json');
+    const gate = workflow.indexOf('check-builder.mjs');
+    const sync = workflow.indexOf('sync.mjs --dest');
+    expect(measure).toBeGreaterThan(-1);
+    expect(gate).toBeGreaterThan(measure);
+    expect(sync).toBeGreaterThan(gate);
+    // The gate must be able to stop the job before the sync step.
+    expect(workflow).toContain('RESOURCE LIMIT');
+    expect(workflow).toContain("steps.gate.outputs.sufficient == 'false'");
+  });
+
+  it('does not lower the documented minimums to force a run', () => {
+    const workflow = read();
+    // The decision comes from the repository's own check, which uses the
+    // requirements recorded in config/chromium_version.json.
+    expect(workflow).toContain('node tools/ci/check-builder.mjs');
+    expect(workflow).not.toMatch(/cpuCores\s*=\s*[1-7]\b/);
+    expect(workflow).not.toMatch(/ramGb\s*=\s*(1?[0-9]|2[0-9])\b/);
+    expect(workflow).not.toMatch(/freeDiskGb\s*=\s*(1[0-4][0-9]|[1-9][0-9])\b/);
+  });
+
+  it('keeps the build stages in the owner-specified order', () => {
+    const workflow = read();
+    const stages = [
+      'sync.mjs --dest',
+      'verify-patches --checkout',
+      'install-overlay.mjs --checkout',
+      'fork-delta --check',
+      'gn-args.mjs',
+      'gn gen out\\Release',
+      'autoninja -C out\\Release chrome',
+      'stage-runtime.mjs --out',
+      'smoke-test.mjs --binary',
+      'record-smoke-test',
+      'CreateFromDirectory',
+      'actions/upload-artifact@',
+    ];
+    let cursor = -1;
+    for (const stage of stages) {
+      const index = workflow.indexOf(stage, cursor + 1);
+      expect(index, `missing experiment stage: ${stage}`).toBeGreaterThan(-1);
+      expect(index, `stage out of order: ${stage}`).toBeGreaterThan(cursor);
+      cursor = index;
+    }
+  });
+
+  it('never weakens the browser, needs no secret, and always keeps the evidence', () => {
+    const workflow = read();
+    expect(workflow).not.toContain('--no-sandbox');
+    expect(workflow).not.toContain('--allow-disabled-sandbox');
+    expect(workflow).not.toContain('continue-on-error');
+    expect(workflow).not.toContain('secrets.');
+    expect(workflow).toContain('permissions:\n  contents: read');
+    // Reports must survive a failed run.
+    expect(workflow).toContain('if: always()');
+    expect(workflow).toContain('hosted-preflight.json');
+    expect(workflow).toContain('runner-capabilities.json');
   });
 });
