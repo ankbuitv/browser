@@ -1,0 +1,161 @@
+/* Copyright 2026 The Aurelia Authors
+ * Use of this source code is governed by the Mozilla Public License, v. 2.0,
+ * that can be found in the LICENSE file at the repository root.
+ *
+ * chrome://aurelia styling.
+ * Rules of the road:
+ *  - every colour comes from design_tokens.css, never a literal;
+ *  - transparency and blur are enhancements and fall back to opaque surfaces;
+ *  - all animation is disabled by prefers-reduced-motion;
+ *  - Windows high-contrast (forced-colors) gets a usable layout with borders,
+ *    because backdrop-filter and translucent surfaces disappear there.
+ */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--aurelia-color-background);
+  color: var(--aurelia-color-text);
+  font-family: var(--aurelia-type-family);
+  font-size: var(--aurelia-type-size-base);
+  line-height: 1.5;
+}
+
+aurelia-app {
+  display: block;
+  margin: 0 auto;
+  max-width: 880px;
+  padding: var(--aurelia-space-xxl) var(--aurelia-space-xl);
+}
+
+.aurelia-header {
+  margin-bottom: var(--aurelia-space-xl);
+}
+
+.aurelia-header h1 {
+  font-size: var(--aurelia-type-size-title);
+  font-weight: var(--aurelia-type-weight-semibold);
+  letter-spacing: 0.01em;
+  margin: 0;
+}
+
+.aurelia-tagline {
+  color: var(--aurelia-color-text-muted);
+  margin: var(--aurelia-space-xs) 0 0;
+}
+
+.aurelia-grid {
+  display: grid;
+  gap: var(--aurelia-space-lg);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+aurelia-status-card {
+  backdrop-filter: none;
+  background: var(--aurelia-surface, var(--aurelia-color-background-elevated));
+  border: 1px solid var(--aurelia-color-border);
+  border-radius: var(--aurelia-radius-lg);
+  display: block;
+  padding: var(--aurelia-space-lg);
+}
+
+/* Blur is opt-in via the root attribute set from the appearance.transparency
+ * preference, and only where the compositor can afford it. */
+@supports (backdrop-filter: blur(1px)) {
+  :root[data-aurelia-transparency="on"] aurelia-status-card {
+    backdrop-filter: blur(var(--aurelia-effect-blur));
+  }
+}
+
+.aurelia-card-heading {
+  font-size: var(--aurelia-type-size-lg);
+  font-weight: var(--aurelia-type-weight-medium);
+  margin: 0 0 var(--aurelia-space-sm);
+}
+
+.aurelia-card-description {
+  color: var(--aurelia-color-text-muted);
+  margin: 0 0 var(--aurelia-space-sm);
+}
+
+.aurelia-row {
+  border-top: 1px solid var(--aurelia-color-border);
+  display: flex;
+  gap: var(--aurelia-space-md);
+  justify-content: space-between;
+  padding: var(--aurelia-space-sm) 0;
+}
+
+.aurelia-row:first-of-type {
+  border-top: none;
+}
+
+.aurelia-row-label {
+  color: var(--aurelia-color-text-muted);
+  flex: 0 1 auto;
+}
+
+.aurelia-row-value {
+  flex: 0 1 auto;
+  font-weight: var(--aurelia-type-weight-medium);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.aurelia-monospace {
+  font-family: var(--aurelia-type-family-monospace);
+  font-size: var(--aurelia-type-size-sm);
+}
+
+.aurelia-footer {
+  color: var(--aurelia-color-text-muted);
+  margin-top: var(--aurelia-space-xl);
+}
+
+/* Keyboard users must always be able to see focus. */
+aurelia-app :focus-visible,
+aurelia-status-card :focus-visible {
+  border-radius: var(--aurelia-radius-sm);
+  outline: var(--aurelia-effect-focus-ring-width) solid
+      var(--aurelia-color-accent);
+  outline-offset: var(--aurelia-effect-focus-ring-offset);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* Windows high-contrast / forced colours: drop the visual effects and rely on
+ * system colours and explicit borders so the page remains legible. */
+@media (forced-colors: active) {
+  aurelia-status-card {
+    backdrop-filter: none;
+    background: Canvas;
+    border: 1px solid CanvasText;
+  }
+
+  .aurelia-row {
+    border-top: 1px solid CanvasText;
+  }
+
+  .aurelia-row-label,
+  .aurelia-tagline,
+  .aurelia-footer {
+    color: CanvasText;
+  }
+
+  aurelia-app :focus-visible {
+    outline: 2px solid Highlight;
+  }
+}

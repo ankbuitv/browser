@@ -1,0 +1,30 @@
+# Copyright 2026 The Aurelia Authors
+# Use of this source code is governed by the Mozilla Public License, v. 2.0,
+# that can be found in the LICENSE file at the repository root.
+#
+# Aurelia Browser - WebUI controller for chrome://aurelia.
+# This file lives in Aurelia's overlay and is installed into a pinned Chromium
+# source tree by tools/chromium/sync.mjs. It intentionally mirrors the shape of
+# //chrome/browser/ui/webui/webui_gallery/BUILD.gn so that upstream build
+# changes are easy to follow during a rebase.
+
+source_set("aurelia") {
+  sources = [ "aurelia_ui.cc" ]
+  public = [ "aurelia_ui.h" ]
+
+  public_deps = [ "//chrome/browser:browser_public_dependencies" ]
+
+  allow_circular_includes_from =
+      [ "//chrome/browser:browser_public_dependencies" ]
+
+  deps = [
+    "//base",
+    "//chrome/browser/profiles:profile",
+    "//chrome/browser/resources/aurelia:resources",
+    "//chrome/common",
+    "//components/version_info",
+    "//content/public/browser",
+    "//services/network/public/mojom",
+    "//ui/webui",
+  ]
+}
