@@ -16,3 +16,18 @@ changes to this file is removed again as soon as the run has started.
 
 Committing any change to this file after that removal does nothing: the
 workflow will be `workflow_dispatch` only, which is the intended steady state.
+
+Run 2 - the retry
+-----------------
+Run 1 (37639529172) failed in 30 seconds on two bugs in the new measurement
+code, both Aurelia-owned and both fixed before this push:
+
+  1. the volume table was sorted as a no-op (Sort-Object -Property cannot read
+     a key off an OrderedDictionary), so C: (29.2 GB) was chosen over D:
+     (219.9 GB);
+  2. the Windows SDK was looked for in exactly one directory and not found,
+     and a missing preinstalled SDK was treated as disqualifying - although
+     Chromium downloads the SDK it pins (10.0.28000.0) itself.
+
+The task's rule for an Aurelia-owned failure is: fix it, test it, commit it,
+push it, and take at most one justified retry. This is that retry.
