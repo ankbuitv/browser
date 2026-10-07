@@ -22,7 +22,10 @@ const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../..',
 );
-const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github/workflows');
+/** Canonical, reviewable definitions live here; the GitHub-installed copies are
+ * a byte-identical deployment of the same files. See tools/ci/install-workflows.mjs. */
+const CANONICAL_WORKFLOWS_DIR = path.join(REPO_ROOT, 'tools/ci/workflows');
+const INSTALLED_WORKFLOWS_DIR = path.join(REPO_ROOT, '.github/workflows');
 const ACTIONS_PINS_PATH = path.join(REPO_ROOT, 'tools/ci/actions-pins.json');
 
 const FULL_SHA = /^[0-9a-f]{40}$/;
@@ -127,9 +130,13 @@ export function analyseWorkflow(text) {
   return result;
 }
 
-export function checkWorkflows(directory = WORKFLOWS_DIR) {
+export function checkWorkflows(
+  directories = [CANONICAL_WORKFLOWS_DIR, INSTALLED_WORKFLOWS_DIR],
+) {
   const problems = [];
-  if (!existsSync(directory)) {
+  const dirs = Array.isArray(directories) ? directories : [directories];
+  const existing = dirs.filter((directory) => existsSync(directory));
+  if (existing.length === 0) {
     return { problems, workflowCount: 0 };
   }
   const approved = existsSync(ACTIONS_PINS_PATH)
@@ -137,15 +144,28 @@ export function checkWorkflows(directory = WORKFLOWS_DIR) {
         JSON.parse(readFileSync(ACTIONS_PINS_PATH, 'utf8')).approved ?? {},
       )
     : [];
-  const files = readdirSync(directory).filter(
-    (name) => name.endsWith('.yml') || name.endsWith('.yaml'),
-  );
+  // A workflow installed into .github/workflows is checked too, but an
+  // identical deployment of a canonical file is only analysed once.
+  const seen = new Set();
+  const files = [];
+  for (const directory of existing) {
+    for (const name of readdirSync(directory).filter(
+      (entry) => entry.endsWith('.yml') || entry.endsWith('.yaml'),
+    )) {
+      const full = path.join(directory, name);
+      const text = readFileSync(full, 'utf8');
+      const key = `${name}\u0000${text}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      files.push({ file: name, full, text });
+    }
+  }
 
-  for (const file of files) {
-    const relative = path.relative(REPO_ROOT, path.join(directory, file));
-    const analysis = analyseWorkflow(
-      readFileSync(path.join(directory, file), 'utf8'),
-    );
+  for (const { full, text } of files) {
+    const relative = path.relative(REPO_ROOT, full);
+    const analysis = analyseWorkflow(text);
 
     for (const { reference, pin } of analysis.uses) {
       if (!FULL_SHA.test(pin)) {

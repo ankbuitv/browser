@@ -239,12 +239,13 @@ function isGitIgnored(
 }
 
 describe('workflows', () => {
-  // NOTE: the workflow definitions are prepared in .github/workflows but could
-  // not be pushed while the GitHub credential lacks the `workflows` permission
-  // (see docs/PROJECT-STATUS.md). This test therefore asserts *compliance* for
-  // whatever workflows exist, which becomes a strict gate as soon as they land.
+  // The definitions live in tools/ci/workflows/ because the credentials used so
+  // far cannot push `.github/workflows/` (see docs/PROJECT-STATUS.md); they are
+  // deployed with `node tools/ci/install-workflows.mjs`. Compliance is required
+  // for the canonical files and for any installed copies.
   it('satisfies the supply-chain policy for every workflow present', () => {
-    const { problems } = checkWorkflows();
+    const { problems, workflowCount } = checkWorkflows();
+    expect(workflowCount).toBeGreaterThanOrEqual(3);
     expect(problems).toEqual([]);
   });
 });

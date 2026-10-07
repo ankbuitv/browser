@@ -32,12 +32,20 @@ threats, the controls, and what is deliberately not automated.
 
 ## Workflows
 
-> **Publishing status:** the workflow definitions described below are prepared
-> but not yet committed, because the GitHub credential used to push this branch
-> lacks the `workflows` permission. Their tooling (`tools/ci/**`) _is_ committed
-> and tested. Add the definitions once the permission is available; until then
-> nothing runs on GitHub and none of the checks in this document are enforced by
-> CI — they are only enforced locally via `node tools/ci/fast-checks.mjs`.
+> **Deployment status:** the definitions below are committed at
+> `tools/ci/workflows/` and deployed with
+> `node tools/ci/install-workflows.mjs`. They are not yet installed under
+> `.github/workflows/`, because the GitHub credential that pushed this branch
+> lacks the `workflows` permission (GitHub rejects pushes containing
+> `.github/workflows/*` without it). Until a credential with that permission
+> runs the deployment — or a maintainer copies the three files across — nothing
+> runs on GitHub, and the checks in this document are enforced locally by
+> `node tools/ci/fast-checks.mjs` only.
+>
+> Deployment is one-way and never silent: `install-workflows.mjs` reports what is
+> missing, refuses to overwrite a file that differs from the canonical copy
+> without `--force`, and `fast-checks.mjs` verifies that any installed copy is
+> byte-identical. That way CI cannot drift away from the reviewed definitions.
 
 | Workflow                    | Trigger                    | Runner          | Permissions                       | Purpose                                                                                          |
 | --------------------------- | -------------------------- | --------------- | --------------------------------- | ------------------------------------------------------------------------------------------------ |

@@ -1,0 +1,125 @@
+# Aurelia Browser - heavy Chromium build.
+#
+# This is the ONLY workflow that can prove the Aurelia overlay compiles.
+# It never runs on GitHub-hosted runners: a Chromium build needs far more CPU,
+# RAM and disk than a hosted runner provides. See docs/BUILDING-CHROMIUM.md for
+# the measured requirements and the runner setup, and docs/CI-SECURITY.md for
+# why self-hosted runners are restricted to trusted events.
+#
+# Triggered manually and nightly. Never from pull_request: a self-hosted runner
+# must not execute code from an untrusted fork.
+name: Chromium (heavy build)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_variant:
+        description: Build variant to produce
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - official
+      run_smoke_test:
+        description: Run the runtime smoke test after building
+        required: true
+        default: true
+        type: boolean
+  schedule:
+    # 02:15 UTC nightly.
+    - cron: '15 2 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chromium-heavy-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and smoke test
+    # Replace with the label set of your builder. Requirements: >= 8 cores,
+    # >= 32 GB RAM, >= 150 GB free SSD, and a persistent Chromium checkout
+    # directory (AURELIA_CHROMIUM_DEST).
+    runs-on: [self-hosted, linux, x64, aurelia-chromium]
+    timeout-minutes: 720
+    env:
+      AURELIA_CHROMIUM_DEST: ${{ vars.AURELIA_CHROMIUM_DEST }}
+      OUT_DIR: out/Aurelia
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js (tooling only; not a browser runtime dependency)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Record runner capabilities
+        run: |
+          echo "cores: $(nproc)"
+          free -g || true
+          df -h "$AURELIA_CHROMIUM_DEST" || df -h .
+          git -C "$AURELIA_CHROMIUM_DEST/src" rev-parse HEAD || true
+
+      - name: Preflight (disk, depot_tools pin state)
+        run: node tools/chromium/sync.mjs --check-only --dest "$AURELIA_CHROMIUM_DEST"
+
+      - name: Sync pinned Chromium checkout and install overlay
+        run: node tools/chromium/sync.mjs --dest "$AURELIA_CHROMIUM_DEST" --install
+
+      - name: Generate build files
+        working-directory: ${{ env.AURELIA_CHROMIUM_DEST }}/src
+        run: |
+          if [ "${{ inputs.build_variant }}" = "official" ]; then
+            gn gen "$OUT_DIR" --args='is_official_build=true is_component_build=false symbol_level=0 blink_symbol_level=0'
+          else
+            gn gen "$OUT_DIR" --args='is_component_build=true symbol_level=1'
+          fi
+          gn args "$OUT_DIR" --list --short > "$OUT_DIR/args.txt" || true
+
+      - name: Build chrome
+        working-directory: ${{ env.AURELIA_CHROMIUM_DEST }}/src
+        run: autoninja -C "$OUT_DIR" -j"$(nproc)" chrome
+
+      - name: Runtime smoke test (chrome://aurelia)
+        if: ${{ inputs.run_smoke_test != false }}
+        run: |
+          node tools/chromium/smoke-test.mjs \
+            --binary "$AURELIA_CHROMIUM_DEST/src/$OUT_DIR/chrome" \
+            --timeout 60000 2>&1 | tee smoke-test.log
+
+      - name: Collect build provenance
+        if: always()
+        run: |
+          mkdir -p artifacts
+          {
+            echo "# Aurelia heavy build"
+            echo
+            echo "- commit: $GITHUB_SHA"
+            echo "- run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- chromium checkout: $(git -C "$AURELIA_CHROMIUM_DEST/src" rev-parse HEAD || echo unknown)"
+            echo "- node: $(node --version)"
+            echo "- date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > artifacts/build-report.md
+          node tools/chromium/cli.mjs status >> artifacts/build-report.md || true
+          cp smoke-test.log artifacts/ 2>/dev/null || true
+          ls -la "$AURELIA_CHROMIUM_DEST/src/$OUT_DIR"/chrome* 2>/dev/null | head -20 >> artifacts/build-report.md || true
+
+      - name: Upload build report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: build-report
+          path: artifacts/
+          retention-days: 14
+          if-no-files-found: warn
+
+# NOTE: build artifacts are deliberately NOT uploaded from this workflow yet.
+# An unsigned development build must be labelled as such and published through
+# the release process (M8), which also produces checksums and, once available,
+# signatures. See docs/RELEASE.md and issue "release: unsigned development build flow".

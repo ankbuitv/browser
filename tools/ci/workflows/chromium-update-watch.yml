@@ -1,0 +1,104 @@
+# Aurelia Browser - Chromium update watch.
+#
+# Detects available Chromium updates and OPENS AN ISSUE. It never edits the pin
+# and never merges anything: a pin change is a reviewed, verified change (see
+# docs/CHROMIUM-UPSTREAM.md and config/chromium_version.json -> updatePolicy).
+#
+# Security releases get priority: the issue body marks builds on the current
+# milestone as security-relevant.
+name: Chromium update watch
+
+on:
+  schedule:
+    # 06:30 UTC daily.
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: chromium-update-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Detect Chromium updates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Check for updates
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          node tools/chromium/cli.mjs check-updates > update-report.txt 2>&1
+          status=$?
+          set -e
+          cat update-report.txt
+          if [ "$status" -ne 0 ]; then
+            echo "check-updates failed; opening no issue"
+            exit 0
+          fi
+          if grep -q "newer builds on the pinned milestone" update-report.txt; then
+            echo "update_available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "update_available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or update the update-tracking issue
+        if: steps.check.outputs.update_available == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          candidate=$(grep "latest candidate" update-report.txt | sed 's/.*latest candidate: //' | awk '{print $1}')
+          title="chore(chromium): evaluate update to ${candidate}"
+          existing=$(gh issue list --state open --search "in:title \"evaluate update to ${candidate}\"" --json number --jq 'length')
+          if [ "$existing" != "0" ]; then
+            echo "issue already exists for ${candidate}"
+            exit 0
+          fi
+          {
+            echo "## Chromium update detected"
+            echo
+            echo '```'
+            cat update-report.txt
+            echo '```'
+            echo
+            echo "## Required before adopting this revision"
+            echo
+            echo "1. Regenerate/verify the patch set against \`${candidate}\`:"
+            echo "   - update \`config/chromium_version.json\` (revision, version, milestone, pinnedAt)"
+            echo "   - \`node tools/chromium/cli.mjs generate-patch\`"
+            echo "   - \`node tools/chromium/cli.mjs verify-patches --online\`"
+            echo "2. Run the heavy build workflow and the runtime smoke test."
+            echo "3. Update docs/FORK-DELTA.md if the delta changed."
+            echo "4. Maintainer review and merge. Never merge an update automatically."
+            echo
+            echo "Completion state: NOT STARTED"
+          } > issue-body.md
+          gh issue create --title "$title" --body-file issue-body.md --label chore
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Chromium update watch"
+            echo
+            echo "- update available: ${{ steps.check.outputs.update_available }}"
+            echo "```"
+            cat update-report.txt 2>/dev/null || echo "no report"
+            echo "```"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -26,6 +26,7 @@ import {
   verifyOffline,
 } from '../chromium/verify-patches.mjs';
 import { checkWorkflows } from './workflow-policy.mjs';
+import { compareWorkflows } from './install-workflows.mjs';
 import { scanRepository } from './secret-scan.mjs';
 
 /** File extensions allowed inside the Chromium overlay. */
@@ -166,6 +167,23 @@ export function runFastChecks({ log = console.log } = {}) {
       ? `${workflowPolicy.workflowCount} workflow(s)`
       : workflowPolicy.problems.join('; '),
   );
+
+  // Once the definitions have been deployed (see docs/CI-SECURITY.md), the
+  // installed copies must stay byte-identical to tools/ci/workflows/. Before
+  // deployment the check is skipped: there is nothing to compare, and the
+  // canonical files are validated by the policy check above either way.
+  const installedWorkflowsDir = path.join(REPO_ROOT, '.github/workflows');
+  if (existsSync(installedWorkflowsDir)) {
+    const deployed = compareWorkflows();
+    const drifted = [...deployed.missing, ...deployed.different];
+    record(
+      'installed workflows match the canonical definitions',
+      drifted.length === 0,
+      drifted.length === 0
+        ? `${deployed.workflows.length} file(s) byte-identical`
+        : `run node tools/ci/install-workflows.mjs (${drifted.join(', ')})`,
+    );
+  }
 
   const findings = scanRepository();
   record(

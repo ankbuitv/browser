@@ -97,6 +97,23 @@ scoping, the update mechanism or the installer requires:
 
 See [SECURITY.md](../SECURITY.md) for the rules that are never negotiable.
 
+## Publishing the CI workflows
+
+The workflow definitions are ordinary, reviewed files at `tools/ci/workflows/`.
+GitHub only runs workflows installed under `.github/workflows/`, and pushing
+files to that path requires a credential with the `workflows` permission.
+
+```bash
+node tools/ci/install-workflows.mjs           # deploy the definitions
+node tools/ci/install-workflows.mjs --check   # verify deployed copies match
+```
+
+The installer never overwrites a file that differs from the canonical copy
+unless `--force` is given, and `fast-checks.mjs` fails when an installed copy
+drifts. If a push is rejected with `without workflows permission`, the
+definitions can also be added through GitHub's web editor by a maintainer; they
+are plain YAML with pinned action SHAs (see `tools/ci/actions-pins.json`).
+
 ## Working with the Chromium pin
 
 Never edit `chromium/patches/*.patch` by hand. Edit
