@@ -17,27 +17,37 @@
   },
   "chromium": {
     "upstreamRepository": "https://github.com/chromium/chromium",
-    "upstreamRef": "tag:155.0.8059.73",
-    "version": "155.0.8059.73",
+    "upstreamRef": "branch-heads/8059",
+    "version": "155.0.8059.40",
     "milestone": 155,
     "channel": "stable",
-    "revision": "6dfaefa462dbbed162e67eb277914f6b1afa36ac",
-    "revisionKind": "annotated-tag-target",
+    "revision": "cfaadc5a132d78e1828635aa8405a499f3e14864",
+    "revisionKind": "release-branch-commit",
     "pinnedAt": "2026-10-07",
     "pinnedBy": "@ankbuitv",
-    "pinRationale": "Latest patch level available for the current stable milestone series at pin time, so the baseline includes current stable security fixes rather than an older branch point.",
+    "pinRationale": "Current stable-channel build on Windows x64 - the first target platform - as published by chromiumdash, so the baseline is a promoted, security-patched release instead of an unpromoted branch head.",
     "pinEvidence": [
-      "https://github.com/chromium/chromium/releases/tag/155.0.8059.73",
-      "git ls-remote --tags https://github.com/chromium/chromium refs/tags/155.0.8059.73"
+      "https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Windows&num=3 -> version 155.0.8059.40, chromium hash cfaadc5a132d78e1828635aa8405a499f3e14864",
+      "https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Linux&num=1 -> milestone 155 on stable, cross-checked 2026-10-07",
+      "gh api repos/chromium/chromium/contents/chrome/VERSION?ref=cfaadc5a132d78e1828635aa8405a499f3e14864 -> MAJOR=155 MINOR=0 BUILD=8059 PATCH=40",
+      "https://github.com/chromium/chromium/commit/cfaadc5a132d78e1828635aa8405a499f3e14864 (Incrementing VERSION to 155.0.8059.40, 2026-10-06T00:16:18Z)"
     ],
-    "revisionVerifiedBy": "tools/chromium/cli.mjs verify-upstream"
+    "revisionVerifiedBy": "tools/chromium/cli.mjs verify-patches --online (pre-image match)",
+    "upstreamRefNote": "Chromium publishes release branches as refs/branch-heads/8059 on chromium.googlesource.com. The github.com/chromium/chromium mirror used here exposes no tags and only the main branch, so the revision is recorded explicitly and verified by reading chrome/VERSION at that revision.",
+    "pinHistory": [
+      {
+        "version": "155.0.8059.73",
+        "revision": "6dfaefa462dbbed162e67eb277914f6b1afa36ac",
+        "note": "Initial scaffolding pin. The assumption that the revision came from a GitHub release tag was wrong: the mirror exposes no tags, and the commit sits later on the same release branch than the promoted stable build, so it was not a stable-channel revision. Re-pinned; this entry is kept so the correction is auditable."
+      }
+    ]
   },
   "patchSet": {
     "version": "0.1.0",
     "directory": "chromium/patches",
     "overlayDirectory": "chromium/overlay",
     "verificationDirectory": "chromium/verification",
-    "baseRevision": "6dfaefa462dbbed162e67eb277914f6b1afa36ac",
+    "baseRevision": "cfaadc5a132d78e1828635aa8405a499f3e14864",
     "targetsRepositoryTree": true
   },
   "updatePolicy": {
@@ -56,11 +66,14 @@
   "toolchain": {
     "depotTools": {
       "source": "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
-      "revision": null,
-      "revisionStatus": "unresolved",
-      "why": "depot_tools is not mirrored on GitHub and the scaffolding sandbox cannot reach chromium.googlesource.com, so no revision has been pinned yet. Do not invent one: resolve it on the heavy builder with `git -C depot_tools rev-parse HEAD`, record it here, and re-run tools/chromium/sync.mjs.",
+      "revision": "1e43ae345913614898e3d6a1ef2680a0d47574e9",
+      "revisionStatus": "pinned",
+      "why": "depot_tools has no GitHub mirror, so the revision was read from the canonical gitiles endpoint and pinned like any other source dependency. Update it deliberately, together with Chromium pin updates, and let the heavy build prove the combination works.",
       "recordWith": "node tools/chromium/sync.mjs --record-depot-tools <sha>",
-      "trackedBy": "issue:toolchain-pin"
+      "trackedBy": "issue #4",
+      "pinnedAt": "2026-10-07",
+      "pinnedBy": "@ankbuitv",
+      "pinEvidence": "https://chromium.googlesource.com/chromium/tools/depot_tools/+/refs/heads/main?format=JSON -> commit 1e43ae345913614898e3d6a1ef2680a0d47574e9 (2026-10-07)"
     }
   },
   "buildRequirements": {

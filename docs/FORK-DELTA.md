@@ -7,8 +7,8 @@ small delta is what makes security updates land quickly. Aurelia is built as
 **isolated code plus a handful of one-line build registrations**, never as a
 patched-up copy of a Chromium subsystem.
 
-- Pinned base: Chromium `155.0.8059.73`
-  (`6dfaefa462dbbed162e67eb277914f6b1afa36ac`)
+- Pinned base: Chromium `155.0.8059.40`
+  (`cfaadc5a132d78e1828635aa8405a499f3e14864`, stable channel)
 - Patch set version: `0.1.0`
 
 > **Verification state:** the numbers below are measured by

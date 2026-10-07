@@ -11,7 +11,7 @@ Security updates take priority over feature work at every point on this list.
 | Item                                                               | State                                                                                                       |
 | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
 | Repository audit                                                   | TESTED (recorded in [REPOSITORY-AUDIT.md](REPOSITORY-AUDIT.md))                                             |
-| Chromium pin (`155.0.8059.73`, exact SHA)                          | TESTED (config validated, digest-verified)                                                                  |
+| Chromium pin (`155.0.8059.40`, exact SHA)                          | TESTED (config validated, digest-verified)                                                                  |
 | Reproducible checkout tooling                                      | IMPLEMENTED (never executed against a real checkout)                                                        |
 | Overlay + patch mechanism                                          | TESTED (patch verified against the pinned revision)                                                         |
 | Patch-application test                                             | TESTED (offline + online)                                                                                   |

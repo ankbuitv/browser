@@ -27,10 +27,10 @@ must be referenced from Chromium's build graph and WebUI registry.
 ```json
 {
   "chromium": {
-    "version": "155.0.8059.73",
+    "version": "155.0.8059.40",
     "channel": "stable",
     "milestone": 155,
-    "revision": "6dfaefa462dbbed162e67eb277914f6b1afa36ac",
+    "revision": "cfaadc5a132d78e1828635aa8405a499f3e14864",
     "upstreamRepository": "https://github.com/chromium/chromium"
   }
 }
@@ -45,18 +45,23 @@ Rules enforced by `tools/chromium/lib/config.mjs` (and its tests):
 - the upstream repository must be an expected origin
   (`github.com/chromium/chromium` or `chromium.googlesource.com`).
 
-### Why `155.0.8059.73`
+### Why `155.0.8059.40`
 
-At pin time this was the highest patch level available on the current stable
-milestone series, so the baseline includes current stable security fixes rather
-than an older branch point. The choice is recorded together with its evidence
-in the config file.
+This is the build chromiumdash reports as **stable on Windows x64** — the first
+target platform — when the pin was set, so the baseline is a promoted,
+security-patched release rather than an unpromoted branch head. The channel was
+cross-checked on Linux (also milestone 155 on stable) and the revision is
+verified by reading `chrome/VERSION` at the exact commit: `MAJOR=155 MINOR=0
+BUILD=8059 PATCH=40`.
 
-**Caveat:** the scaffolding environment cannot reach `chromiumdash`, so the
-pin's channel was inferred from the upstream tag series (a long patch series on
-milestone 155, short series on 156/157). This is corroborated by
-`node tools/chromium/cli.mjs check-updates`, and must be re-confirmed on a
-networked builder before the first release. It is tracked as a milestone issue.
+Pin history is kept in `pinHistory` in the config file. The first scaffolding
+pin (`155.0.8059.73`) assumed a GitHub release tag that does not exist — the
+`github.com/chromium/chromium` mirror exposes **no tags at all** and only its
+main branch, while release branches live on `chromium.googlesource.com` as
+`refs/branch-heads/<build>`. That commit also sits _later_ on the release branch
+than the promoted stable build, which is the signature of an unpromoted build.
+Both facts are recorded rather than quietly corrected: pin evidence must be
+re-checkable, and "the highest number in the list" is not evidence of a channel.
 
 ### Toolchain pin
 

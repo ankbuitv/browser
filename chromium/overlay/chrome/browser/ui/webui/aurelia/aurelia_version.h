@@ -18,8 +18,8 @@ namespace aurelia {
 inline constexpr char kProductCodename[] = "Aurelia";
 inline constexpr char kProductVersion[] = "0.1.0";
 inline constexpr char kBuildChannel[] = "development";
-inline constexpr char kChromiumPin[] = "155.0.8059.73";
-inline constexpr char kChromiumRevision[] = "6dfaefa462dbbed162e67eb277914f6b1afa36ac";
+inline constexpr char kChromiumPin[] = "155.0.8059.40";
+inline constexpr char kChromiumRevision[] = "cfaadc5a132d78e1828635aa8405a499f3e14864";
 inline constexpr char kPatchSetVersion[] = "0.1.0";
 
 }  // namespace aurelia

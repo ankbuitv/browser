@@ -30,7 +30,7 @@ browser itself does not exist yet. Full item-by-item detail:
 
 | Area                                                                     | State                                                                     |
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
-| Chromium pin (exact revision, verified)                                  | **TESTED** — `155.0.8059.73` @ `6dfaefa462db`                             |
+| Chromium pin (exact revision, verified)                                  | **TESTED** — `155.0.8059.40` @ `cfaadc5a132d` (stable channel)            |
 | Overlay + patch mechanism (7 inserted lines in 6 upstream files)         | **TESTED** — verified against the pinned upstream revision                |
 | Reproducible checkout tooling                                            | **IMPLEMENTED** — never run against a real checkout                       |
 | `chrome://aurelia` WebUI (C++ + TS/CSS)                                  | **SCAFFOLDED** — written, not compiled                                    |

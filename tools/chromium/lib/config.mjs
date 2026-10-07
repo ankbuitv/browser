@@ -100,7 +100,7 @@ export function findConfigProblems(config) {
     );
   }
   if (typeof chromium.version !== 'string' || !VERSION_RE.test(chromium.version)) {
-    problems.push('chromium.version must look like 155.0.8059.73');
+    problems.push('chromium.version must look like 155.0.8059.40');
   }
   if (!Number.isInteger(chromium.milestone) || chromium.milestone <= 0) {
     problems.push('chromium.milestone must be a positive integer');

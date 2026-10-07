@@ -11,7 +11,7 @@ is Chromium's, under Chromium's own licenses.
 
 | Component | Version                                                             | License                 | Notes                                                                                                                                                                                                    |
 | --------- | ------------------------------------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Chromium  | pinned `155.0.8059.73` (`6dfaefa462dbbed162e67eb277914f6b1afa36ac`) | BSD-3-Clause and others | Copyright The Chromium Authors. Full upstream notices are preserved in the checkout (`LICENSE`, `LICENSES/`), and are shipped with any distribution as required. Aurelia never relicenses upstream code. |
+| Chromium  | pinned `155.0.8059.40` (`cfaadc5a132d78e1828635aa8405a499f3e14864`) | BSD-3-Clause and others | Copyright The Chromium Authors. Full upstream notices are preserved in the checkout (`LICENSE`, `LICENSES/`), and are shipped with any distribution as required. Aurelia never relicenses upstream code. |
 
 The pinned revision is the only version Aurelia builds. See
 [docs/CHROMIUM-UPSTREAM.md](docs/CHROMIUM-UPSTREAM.md).

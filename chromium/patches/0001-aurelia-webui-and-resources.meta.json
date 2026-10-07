@@ -3,8 +3,8 @@
   "title": "Register the chrome://aurelia WebUI and its resources",
   "description": "Adds Aurelia's own WebUI surface to a pinned Chromium tree. All new code lives in chromium/overlay/; this patch only wires it into existing upstream build files, the WebUI config registry and the URL constant list.",
   "patchSetVersion": "0.1.0",
-  "baseRevision": "6dfaefa462dbbed162e67eb277914f6b1afa36ac",
-  "baseVersion": "155.0.8059.73",
+  "baseRevision": "cfaadc5a132d78e1828635aa8405a499f3e14864",
+  "baseVersion": "155.0.8059.40",
   "sha256": "155e1a0d7da09148d0a064da1ef34590ebb49335ac2a2ca67f6c11a8f21d2f05",
   "generatedBy": "tools/chromium/generate-patch.mjs",
   "summary": {
