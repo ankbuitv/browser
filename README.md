@@ -116,6 +116,14 @@ test): [docs/BUILDING-CHROMIUM.md](docs/BUILDING-CHROMIUM.md). For working on
 Aurelia's own code without a Chromium checkout, see
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
+The minimum above is not lowered, but there is one deliberate exception for a
+first attempt on a machine you own:
+[docs/LOCAL-WINDOWS-BUILD.md](docs/LOCAL-WINDOWS-BUILD.md) documents the
+`LOW_RESOURCE_EXPERIMENT` path - one command, I/O and disk checks before anything
+large, a disk reserve the build stops before consuming, and a job count computed
+from the measured machine. It has not been run on Windows yet and it proves
+nothing until it is.
+
 ## Repository layout
 
 ```
@@ -132,21 +140,22 @@ docs/                   Architecture, roadmap, threat models, build guides
 
 ## Documentation
 
-| Topic                       | Document                                               |
-| --------------------------- | ------------------------------------------------------ |
-| What exists today           | [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md)       |
-| Architecture & principles   | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)           |
-| Roadmap & milestones        | [docs/ROADMAP.md](docs/ROADMAP.md)                     |
-| Chromium upstream strategy  | [docs/CHROMIUM-UPSTREAM.md](docs/CHROMIUM-UPSTREAM.md) |
-| How much we change Chromium | [docs/FORK-DELTA.md](docs/FORK-DELTA.md)               |
-| Building                    | [docs/BUILDING-CHROMIUM.md](docs/BUILDING-CHROMIUM.md) |
-| Privacy (data flows)        | [PRIVACY.md](PRIVACY.md)                               |
-| Security & reporting        | [SECURITY.md](SECURITY.md)                             |
-| Threats                     | [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)           |
-| Testing                     | [docs/TESTING.md](docs/TESTING.md)                     |
-| CI security                 | [docs/CI-SECURITY.md](docs/CI-SECURITY.md)             |
-| Release process             | [docs/RELEASE.md](docs/RELEASE.md)                     |
-| Contributing                | [CONTRIBUTING.md](CONTRIBUTING.md)                     |
+| Topic                            | Document                                                   |
+| -------------------------------- | ---------------------------------------------------------- |
+| What exists today                | [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md)           |
+| Architecture & principles        | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)               |
+| Roadmap & milestones             | [docs/ROADMAP.md](docs/ROADMAP.md)                         |
+| Chromium upstream strategy       | [docs/CHROMIUM-UPSTREAM.md](docs/CHROMIUM-UPSTREAM.md)     |
+| How much we change Chromium      | [docs/FORK-DELTA.md](docs/FORK-DELTA.md)                   |
+| Building                         | [docs/BUILDING-CHROMIUM.md](docs/BUILDING-CHROMIUM.md)     |
+| Local low-resource Windows build | [docs/LOCAL-WINDOWS-BUILD.md](docs/LOCAL-WINDOWS-BUILD.md) |
+| Privacy (data flows)             | [PRIVACY.md](PRIVACY.md)                                   |
+| Security & reporting             | [SECURITY.md](SECURITY.md)                                 |
+| Threats                          | [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)               |
+| Testing                          | [docs/TESTING.md](docs/TESTING.md)                         |
+| CI security                      | [docs/CI-SECURITY.md](docs/CI-SECURITY.md)                 |
+| Release process                  | [docs/RELEASE.md](docs/RELEASE.md)                         |
+| Contributing                     | [CONTRIBUTING.md](CONTRIBUTING.md)                         |
 
 ## Development warning
 

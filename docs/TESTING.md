@@ -24,9 +24,20 @@ Each level below states what it proves and - explicitly - what it does not.
 | Secure DNS policy (fail-closed, redundancy, template validation)                       | `packages/core/src/net/secure-dns.test.ts`          |
 | Tracking-parameter stripping (allowlists, non-http inputs)                             | `packages/core/src/privacy/tracking-params.test.ts` |
 | Preference schema, store, derived values, invariants                                   | `packages/core/src/prefs/*.test.ts`                 |
-| Chromium pin validation                                                                | `tests/tools/config.test.mjs`                       |
-| Patch parsing/rejection rules                                                          | `tests/tools/patch.test.mjs`                        |
+| Chromium pin validation / repository path handling                                     | `tests/tools/config.test.mjs`                       |
+| Patch parsing and rejection rules                                                      | `tests/tools/patch.test.mjs`                        |
+| GN argument policy (allowlist, forbidden keys, rendering)                              | `tests/tools/gn-args.test.mjs`                      |
+| Build driver plan (stages, profiles, `--only`, job limits, GN file selection)          | `tests/tools/build.test.mjs`                        |
+| Low-resource policy (verdicts, disk floors, job tiers, pagefile warnings)              | `tests/tools/low-resource.test.mjs`                 |
+| Packaging (zip structure, checksums, refusal above 4 GB)                               | `tests/tools/package.test.mjs`                      |
+| Staging completeness (`chrome.exe` plus required runtime files)                        | `tests/tools/stage-runtime.test.mjs`                |
+| Entry-point detection on Windows-style paths (the bug that killed a hosted run)        | `tests/tools/entry.test.mjs`                        |
+| PowerShell structural lint for `tools/**/*.ps1`                                        | `tests/tools/powershell.test.mjs`                   |
+| Windows bootstrap script invariants (modes, disk policy, no system changes)            | `tests/tools/windows-bootstrap.test.mjs`            |
+| Cross-platform child processes (Windows quoting, `cmd.exe` resolution)                 | `tests/tools/exec.test.mjs`                         |
 | Workflow policy, secret scanning, generated-file freshness, offline patch verification | `tests/tools/repository.test.mjs`                   |
+| Contrast of the declared design-token pairs                                            | `tests/design/check-contrast.test.mjs`              |
+| Workflow definitions and Windows-native-stderr handling                                | `tests/tools/workflows.test.mjs`                    |
 
 Run: `npm test`.
 
@@ -40,7 +51,12 @@ _Proves:_ the logic is right. _Does not prove:_ anything about Chromium.
 - generated files (version header, design tokens) match their generators;
 - the patch set verifies offline, touching only expected paths;
 - the overlay contains only Chromium-native files and no Node.js runtime files;
-- workflows are SHA-pinned, minimally privileged and policy-compliant;
+- workflows are SHA-pinned, minimally privileged and policy-compliant, and the
+  deployed copies are byte-identical to the canonical ones;
+- GN argument files pass the reviewed allowlist;
+- PowerShell scripts are structurally sound (balanced delimiters, no
+  continuation backtick followed by whitespace, no BOM, LF endings);
+- every required document exists and internal documentation links resolve;
 - no credentials are present in tracked files.
 
 _Proves:_ the repository is internally consistent. _Does not prove:_ it compiles.
@@ -147,6 +163,13 @@ build before an MVP claim; results are posted in the issue, not assumed.
 | 6 Privacy/network tests | same as 4                                             | as implemented                 |
 
 ## Coverage expectations
+
+**Nothing here executes the build.** The Windows bootstrap path
+(`tools/windows/bootstrap-build.ps1`), `sync.mjs`, `gn gen` and `autoninja` have
+unit tests for their plans and policies, but no automated test in this repository
+has run them end to end: that requires a provisioned machine, and the results
+belong in [LOCAL-WINDOWS-BUILD.md](LOCAL-WINDOWS-BUILD.md) and
+[PROJECT-STATUS.md](PROJECT-STATUS.md), not in a test assertion.
 
 Coverage percentage is not a goal. The expectations are:
 

@@ -114,9 +114,20 @@ node tools/chromium/build.mjs --dest <checkout-parent> --skip-sync
 ```
 
 It runs preflight → sync → verify patches → install overlay → fork-delta budget
-→ GN argument policy → `gn gen` → `autoninja` → stage → smoke test → record,
-and prints which ladder state the run reached. Nothing is skipped silently and
-no stage weakens the browser.
+→ GN argument policy → `gn gen` → `autoninja` → stage → smoke test → record →
+package, and prints which ladder state the run reached. Nothing is skipped
+silently and no stage weakens the browser. Individual stages can be re-run with
+`--only sync`, `--only compile`, `--only smoke-test` and so on.
+
+If your machine is below the minimum above, there is one deliberate exception:
+the `LOW_RESOURCE_EXPERIMENT` path in
+[LOCAL-WINDOWS-BUILD.md](LOCAL-WINDOWS-BUILD.md). It keeps this minimum as it is
+(150 GB free, 32 GB RAM, 8 cores) and adds a second, explicitly experimental
+floor (100 GB free with a 15 GB reserve), a small-footprint GN profile
+(`config/gn/win-x64-low-resource.gn`) and a job count computed from the measured
+machine. It produces a normal development build - the sandbox, site isolation,
+TLS verification and process isolation are untouched - and it is not a
+production path.
 
 The same steps by hand, with the reviewed argument set - do not invent
 arguments per machine.
