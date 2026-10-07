@@ -12,7 +12,10 @@
  *   5. self-hosted runners are only used from trusted events
  *      (schedule / workflow_dispatch / push), never from `pull_request`;
  *   6. artifacts published from untrusted events are not consumed by release
- *      workflows.
+ *      workflows;
+ *   7. workflow/job-level `env:` blocks never use the `runner` context, which
+ *      GitHub rejects with "Unrecognized named-value: 'runner'" (this made the
+ *      first hosted-experiment workflow invalid; step-level env is fine).
  */
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
@@ -51,12 +54,14 @@ export function analyseWorkflow(text) {
     hasPullRequest: false,
     referencesSecrets: false,
     selfHosted: false,
+    runnerInJobEnv: false,
     onSection: [],
   };
 
   let inPermissions = false;
   let inOn = false;
   let currentOnEvent = null;
+  let envIndent = null;
 
   for (const rawLine of lines) {
     const line = rawLine.replace(/\s+$/, '');
@@ -64,6 +69,20 @@ export function analyseWorkflow(text) {
     if (trimmed.length === 0 || trimmed.startsWith('#')) continue;
 
     const indent = line.length - line.trimStart().length;
+
+    // Rule 7: the `runner` context is unavailable in workflow- and job-level
+    // `env:` blocks; GitHub rejects the whole workflow file when it is used
+    // there. Step-level `env:` is fine and is not inspected here.
+    if (envIndent !== null) {
+      if (indent > envIndent) {
+        if (/\$\{\{\s*runner\./.test(trimmed)) result.runnerInJobEnv = true;
+      } else {
+        envIndent = null;
+      }
+    }
+    if (envIndent === null && indent <= 4 && /^env:\s*$/.test(trimmed)) {
+      envIndent = indent;
+    }
 
     if (indent === 0 && trimmed.startsWith('on:')) {
       inOn = true;
@@ -198,6 +217,11 @@ export function checkWorkflows(
     if (analysis.selfHosted && analysis.hasPullRequest) {
       problems.push(
         `${relative}: self-hosted runners must not be used from pull_request events`,
+      );
+    }
+    if (analysis.runnerInJobEnv) {
+      problems.push(
+        `${relative}: uses the runner context in a workflow/job-level env block, where GitHub rejects the workflow ("Unrecognized named-value: 'runner'")`,
       );
     }
     const events = analysis.onSection;

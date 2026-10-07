@@ -78,6 +78,10 @@ jobs:
         run: node tools/ci/fast-checks.mjs
 
       - name: Verify the pin (tag and chrome/VERSION)
+        env:
+          # verify-pin.mjs reads chrome/VERSION through the GitHub API, so this
+          # step needs a token; without it every fast-CI run fails here.
+          GH_TOKEN: ${{ github.token }}
         run: node tools/chromium/verify-pin.mjs
 
       - name: Verify the patch set against the pinned Chromium revision

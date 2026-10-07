@@ -26,8 +26,7 @@
     "chromium:check-updates": "node tools/chromium/cli.mjs check-updates",
     "chromium:plan": "node tools/chromium/cli.mjs plan",
     "patches:verify": "node tools/chromium/cli.mjs verify-patches",
-    "patches:list": "node tools/chromium/cli.mjs list-patches",
-    "release:checksums": "node tools/release/checksums.mjs"
+    "patches:list": "node tools/chromium/cli.mjs list-patches"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

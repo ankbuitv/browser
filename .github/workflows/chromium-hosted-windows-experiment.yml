@@ -54,9 +54,15 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 360
     env:
-      # Hosted runners have a 6-hour job limit; the preflight decides whether
-      # an attempt is even plausible, so this ceiling only bounds a doomed run.
-      AURELIA_CHROMIUM_DEST: ${{ runner.temp }}\aurelia-chromium
+      # Resolved once here so every step and every `if:` agrees.
+      #  * `runner` is NOT available in a job-level env block (GitHub rejects
+      #    the whole workflow with "Unrecognized named-value: 'runner'"), so
+      #    the work directory is prepared by the first step from RUNNER_TEMP;
+      #  * `github.event.inputs` is used instead of the `inputs` context so the
+      #    fallbacks also hold if this workflow is ever started by a non-dispatch
+      #    event (the `inputs` context is only populated for workflow_dispatch).
+      EXPERIMENT_MODE: ${{ github.event.inputs.mode || 'preflight-only' }}
+      EXPERIMENT_REASON: ${{ github.event.inputs.reason || 'unspecified' }}
     steps:
       - name: Check out Aurelia
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -65,6 +71,20 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
+
+      - name: Prepare the Chromium work directory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Hosted runners have a 6-hour job limit; the preflight decides whether
+          # an attempt is even plausible, so this ceiling only bounds a doomed run.
+          $dest = Join-Path $env:RUNNER_TEMP 'aurelia-chromium'
+          "AURELIA_CHROMIUM_DEST=$dest" | Add-Content $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
+          Write-Host "work directory: $dest"
+          Write-Host "mode: $env:EXPERIMENT_MODE"
+          Write-Host "reason: $env:EXPERIMENT_REASON"
 
       - name: Measure the runner
         shell: pwsh
@@ -112,8 +132,8 @@ jobs:
 
           $report = [ordered]@{
             experiment      = 'hosted-windows-preflight'
-            reason          = '${{ inputs.reason }}'
-            mode            = '${{ inputs.mode }}'
+            reason          = $env:EXPERIMENT_REASON
+            mode            = $env:EXPERIMENT_MODE
             runner          = [ordered]@{
               name        = $env:RUNNER_NAME
               os          = $env:RUNNER_OS
@@ -195,7 +215,7 @@ jobs:
           }
 
       - name: Stop cleanly when only the preflight was requested
-        if: always() && steps.gate.outputs.sufficient == 'true' && inputs.mode == 'preflight-only'
+        if: always() && steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-only'
         shell: pwsh
         run: |
           Add-Content $env:GITHUB_STEP_SUMMARY ''
@@ -210,7 +230,7 @@ jobs:
           exit 1
 
       - name: Sync the pinned Chromium checkout
-        if: steps.gate.outputs.sufficient == 'true' && inputs.mode == 'preflight-and-build'
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
         shell: pwsh
         run: |
           Add-Content $env:GITHUB_STEP_SUMMARY ''
@@ -218,31 +238,31 @@ jobs:
           node tools/chromium/sync.mjs --dest "$env:AURELIA_CHROMIUM_DEST"
 
       - name: Verify the patch set against the pristine checkout
-        if: steps.gate.outputs.sufficient == 'true' && inputs.mode == 'preflight-and-build'
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
         shell: pwsh
         run: node tools/chromium/cli.mjs verify-patches --checkout "$env:AURELIA_CHROMIUM_DEST\src"
 
       - name: Install the Aurelia overlay and apply the patch set
-        if: steps.gate.outputs.sufficient == 'true' && inputs.mode == 'preflight-and-build'
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
         shell: pwsh
         run: node tools/chromium/install-overlay.mjs --checkout "$env:AURELIA_CHROMIUM_DEST\src"
 
       - name: Verify the fork delta budget
-        if: steps.gate.outputs.sufficient == 'true' && inputs.mode == 'preflight-and-build'
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
         shell: pwsh
         run: |
           node tools/chromium/cli.mjs fork-delta --check
           if ($LASTEXITCODE -ne 0) { throw 'the fork delta exceeded its reviewed budget' }
 
       - name: Validate the reviewed GN arguments
-        if: steps.gate.outputs.sufficient == 'true' && inputs.mode == 'preflight-and-build'
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
         shell: pwsh
         run: |
           node tools/chromium/gn-args.mjs config/gn/win-x64-dev.gn
           if ($LASTEXITCODE -ne 0) { throw 'the reviewed GN arguments failed policy validation' }
 
       - name: gn gen (development Release, reviewed arguments)
-        if: steps.gate.outputs.sufficient == 'true' && inputs.mode == 'preflight-and-build'
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
         shell: pwsh
         working-directory: ${{ runner.temp }}/aurelia-chromium/src
         run: |
@@ -252,7 +272,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "gn gen failed with exit code $LASTEXITCODE" }
 
       - name: autoninja chrome
-        if: steps.gate.outputs.sufficient == 'true' && inputs.mode == 'preflight-and-build'
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
         shell: pwsh
         working-directory: ${{ runner.temp }}/aurelia-chromium/src
         run: |
@@ -262,19 +282,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "autoninja failed with exit code $LASTEXITCODE" }
 
       - name: Validate the effective arguments the build actually used
-        if: steps.gate.outputs.sufficient == 'true' && inputs.mode == 'preflight-and-build'
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
         shell: pwsh
         run: node tools/chromium/gn-args.mjs "$env:AURELIA_CHROMIUM_DEST\src\out\Release\args.gn"
 
       - name: Stage the complete runtime directory
-        if: steps.gate.outputs.sufficient == 'true' && inputs.mode == 'preflight-and-build'
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
         shell: pwsh
         run: |
           node tools/chromium/stage-runtime.mjs --out "$env:AURELIA_CHROMIUM_DEST\src\out\Release" --dest "$env:AURELIA_CHROMIUM_DEST\artifacts\staged" --aurelia-revision "${{ github.sha }}" --gn-args "$env:AURELIA_CHROMIUM_DEST\src\out\Release\args.gn" --runner-capabilities artifacts\runner-capabilities.json
           if ($LASTEXITCODE -ne 0) { throw 'staging failed' }
 
       - name: Smoke test the staged browser (sandboxed; no security-weakening flags)
-        if: steps.gate.outputs.sufficient == 'true' && inputs.mode == 'preflight-and-build'
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
         shell: pwsh
         run: |
           node tools/chromium/smoke-test.mjs --binary "$env:AURELIA_CHROMIUM_DEST\artifacts\staged\chrome.exe" --report "$env:AURELIA_CHROMIUM_DEST\artifacts\smoke-test.json"
@@ -282,12 +302,12 @@ jobs:
           Copy-Item "$env:AURELIA_CHROMIUM_DEST\artifacts\smoke-test.json" artifacts\
 
       - name: Record the smoke-test result in the build manifest
-        if: steps.gate.outputs.sufficient == 'true' && inputs.mode == 'preflight-and-build'
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
         shell: pwsh
         run: node tools/chromium/stage-runtime.mjs --dest "$env:AURELIA_CHROMIUM_DEST\artifacts\staged" --record-smoke-test "$env:AURELIA_CHROMIUM_DEST\artifacts\smoke-test.json"
 
       - name: Package the complete runtime directory (never just chrome.exe)
-        if: steps.gate.outputs.sufficient == 'true' && inputs.mode == 'preflight-and-build'
+        if: steps.gate.outputs.sufficient == 'true' && env.EXPERIMENT_MODE == 'preflight-and-build'
         shell: pwsh
         run: |
           $staging = "$env:AURELIA_CHROMIUM_DEST\artifacts\staged"

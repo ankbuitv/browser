@@ -120,9 +120,17 @@ node tools/ci/install-workflows.mjs --check   # verify deployed copies match
 
 The installer never overwrites a file that differs from the canonical copy
 unless `--force` is given, and `fast-checks.mjs` fails when an installed copy
-drifts. If a push is rejected with `without workflows permission`, the
-definitions can also be added through GitHub's web editor by a maintainer; they
+drifts. Pushing `.github/workflows/*` needs a credential with the `workflows`
+permission; if a push is rejected with `without workflows permission`, the
+definitions can also be added through GitHub's web editor by a maintainer — they
 are plain YAML with pinned action SHAs (see `tools/ci/actions-pins.json`).
+
+Starting a `workflow_dispatch`-only workflow (for example the hosted Windows
+experiment) needs the `actions: write` permission, which the automation
+credential does not have (the dispatch endpoint answers
+`403 Resource not accessible by integration`). Dispatch it from the Actions UI,
+or use a credential that has the permission. A `workflow_dispatch` workflow is
+only offerered for running once its file exists on the default branch.
 
 ## Creating issues from a restricted environment
 

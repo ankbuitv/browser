@@ -17,6 +17,10 @@ import {
   compareWorkflows,
   installWorkflows,
 } from '../../tools/ci/install-workflows.mjs';
+import {
+  analyseWorkflow,
+  checkWorkflows,
+} from '../../tools/ci/workflow-policy.mjs';
 
 const WORKFLOW = 'sample.yml';
 
@@ -149,6 +153,53 @@ describe('Windows heavy build pipeline', () => {
   });
 });
 
+describe('workflow policy', () => {
+  const bad = [
+    'on: push',
+    'permissions:',
+    '  contents: read',
+    'jobs:',
+    '  build:',
+    '    runs-on: ubuntu-latest',
+    '    env:',
+    '      DEST: ${{ runner.temp }}/build',
+    '    steps:',
+    '      - run: true',
+    '',
+  ].join('\n');
+
+  const good = [
+    'on: push',
+    'permissions:',
+    '  contents: read',
+    'jobs:',
+    '  build:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - run: true',
+    '        env:',
+    '          DEST: ${{ runner.temp }}/build',
+    '',
+  ].join('\n');
+
+  it('rejects the runner context in a job-level env block', () => {
+    // GitHub failed the first hosted experiment with exactly this mistake:
+    // "Unrecognized named-value: 'runner'".
+    expect(analyseWorkflow(bad).runnerInJobEnv).toBe(true);
+  });
+
+  it('accepts the runner context in a step-level env block', () => {
+    expect(analyseWorkflow(good).runnerInJobEnv).toBe(false);
+  });
+
+  it('reports the mistake before it can reach a push', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'aurelia-policy-'));
+    writeFileSync(path.join(root, 'invalid.yml'), bad);
+    const { problems } = checkWorkflows([root]);
+    expect(problems.join('\n')).toContain('job-level env');
+  });
+});
+
 describe('hosted Windows experiment', () => {
   const read = () =>
     readFileSync(
@@ -214,6 +265,18 @@ describe('hosted Windows experiment', () => {
       expect(index, `stage out of order: ${stage}`).toBeGreaterThan(cursor);
       cursor = index;
     }
+  });
+
+  it('resolves the dispatch inputs once, into environment variables', () => {
+    const workflow = read();
+    // The mode must be resolved through env so every `if:` checks the same
+    // value, and so the workflow still behaves if started by a non-dispatch
+    // event (the `inputs` context is only populated for workflow_dispatch).
+    expect(workflow).toContain(
+      "EXPERIMENT_MODE: ${{ github.event.inputs.mode || 'preflight-only' }}",
+    );
+    expect(workflow).not.toContain('inputs.mode ==');
+    expect(workflow).toContain('env.EXPERIMENT_MODE ==');
   });
 
   it('never weakens the browser, needs no secret, and always keeps the evidence', () => {

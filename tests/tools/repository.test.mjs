@@ -239,10 +239,10 @@ function isGitIgnored(
 }
 
 describe('workflows', () => {
-  // The definitions live in tools/ci/workflows/ because the credentials used so
-  // far cannot push `.github/workflows/` (see docs/PROJECT-STATUS.md); they are
-  // deployed with `node tools/ci/install-workflows.mjs`. Compliance is required
-  // for the canonical files and for any installed copies.
+  // Canonical definitions live in tools/ci/workflows/ and are deployed with
+  // `node tools/ci/install-workflows.mjs`; `.github/workflows/` holds
+  // byte-identical copies, so compliance is required for both, and an installed
+  // copy that drifts fails fast-checks (docs/CI-SECURITY.md).
   it('satisfies the supply-chain policy for every workflow present', () => {
     const { problems, workflowCount } = checkWorkflows();
     expect(workflowCount).toBeGreaterThanOrEqual(3);

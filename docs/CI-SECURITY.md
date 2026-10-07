@@ -33,19 +33,29 @@ threats, the controls, and what is deliberately not automated.
 ## Workflows
 
 > **Deployment status:** the definitions below are committed at
-> `tools/ci/workflows/` and deployed with
-> `node tools/ci/install-workflows.mjs`. They are not yet installed under
-> `.github/workflows/`, because the GitHub credential that pushed this branch
-> lacks the `workflows` permission (GitHub rejects pushes containing
-> `.github/workflows/*` without it). Until a credential with that permission
-> runs the deployment — or a maintainer copies the three files across — nothing
-> runs on GitHub, and the checks in this document are enforced locally by
-> `node tools/ci/fast-checks.mjs` only.
+> `tools/ci/workflows/` and deployed to `.github/workflows/` with
+> `node tools/ci/install-workflows.mjs`. The deployed copies are byte-identical
+> to the canonical files, and both `install-workflows.mjs --check` and
+> `fast-checks.mjs` verify that on every run. Deployment is one-way and never
+> silent: the installer reports what is missing and refuses to overwrite a file
+> that differs from the canonical copy without `--force`, so CI cannot drift away
+> from the reviewed definitions.
 >
-> Deployment is one-way and never silent: `install-workflows.mjs` reports what is
-> missing, refuses to overwrite a file that differs from the canonical copy
-> without `--force`, and `fast-checks.mjs` verifies that any installed copy is
-> byte-identical. That way CI cannot drift away from the reviewed definitions.
+> **What the automation credential can and cannot do** (measured, not assumed):
+> it can push to the repository, including `.github/workflows/*`, and it can read
+> Actions state (`gh run list`, `gh api .../actions/runs`). It cannot create a
+> workflow dispatch event — `POST .../actions/workflows/<id>/dispatches` returns
+> `403 Resource not accessible by integration` — so a `workflow_dispatch`-only
+> workflow is started by a maintainer from the Actions UI, or by a credential
+> with the `actions: write` permission. GitHub also only offers "Run workflow"
+> for a workflow whose file exists on the default branch.
+>
+> **Workflow files are validated by GitHub, not by us:** an invalid file is shown
+> in the Actions list by its path instead of its `name:`, and the push that
+> introduced it gets a zero-second "Invalid workflow file" failure with the exact
+> parser error. The first hosted experiment hit this (`Unrecognized named-value:
+'runner'` in a job-level `env:` block); rule 7 of `tools/ci/workflow-policy.mjs`
+> now rejects that class of mistake before it reaches a push.
 
 | Workflow                                 | Trigger                    | Runner                                                            | Permissions                       | Purpose                                                                                                                                                                          |
 | ---------------------------------------- | -------------------------- | ----------------------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
