@@ -42,17 +42,16 @@
 name: Chromium hosted constrained experiment
 
 on:
-  # TEMPORARY PUSH TRIGGER - removed again as soon as the run below has
-  # started. This workflow is meant to be manual-only: it burns hosted-runner
-  # minutes and Actions quota, and must never spend them on its own. The
-  # automation credential cannot create workflow_dispatch events (the API
-  # answers HTTP 403 - see docs/CI-SECURITY.md), so the single controlled run
-  # is started the way this project already did once: by pushing a file whose
-  # only purpose is to trigger it.
-  push:
-    branches: [arena/11911355-browser]
-    paths: ['tools/ci/hosted-experiment-trigger.txt']
-  # Manual only. This is how the owner runs it again.
+  # Manual only. This burns hosted-runner minutes and Actions quota, so it
+  # starts when a maintainer dispatches it - from the Actions UI, or with
+  #   gh workflow run chromium-hosted-constrained-experiment.yml
+  #
+  # The automation credential this repository is worked with cannot create
+  # workflow_dispatch events (the API answers HTTP 403 - see
+  # docs/CI-SECURITY.md). The single controlled run was therefore started the
+  # way this project already did once, with a temporary `push:` trigger that
+  # listened for changes to tools/ci/hosted-experiment-trigger.txt; that
+  # trigger and the file were removed again as soon as the run had started.
   workflow_dispatch:
     inputs:
       jobs:
