@@ -52,6 +52,11 @@ resources, so it consumes the same design tokens. Anything it renders must be
 labelled in the UI itself as a harness preview; a harness screenshot must never
 be presented as evidence that a feature works in the browser.
 
+Run it with `node tools/dev/serve-ui-lab.mjs --port 5174`; the page carries an
+unmissable banner and every response carries the header
+`x-aurelia-harness: development-harness-not-the-browser`, so a preview can never
+be mistaken for the product - including in screenshots and automated checks.
+
 Its rules:
 
 - it is never shipped, never part of the browser build, and never referenced by

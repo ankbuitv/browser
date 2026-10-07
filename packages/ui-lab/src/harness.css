@@ -1,0 +1,118 @@
+/*
+ * Harness-only styles.
+ *
+ * These are NOT browser-UI styles: the shipped UI lives in
+ * chromium/overlay/chrome/browser/resources/aurelia/aurelia.css. Keep harness
+ * chrome here so the two cannot be confused.
+ */
+
+body {
+  margin: 0;
+  padding: 24px;
+  background: var(--aurelia-color-background);
+  color: var(--aurelia-color-text);
+  font-family: var(--aurelia-type-family);
+  font-size: var(--aurelia-type-size-base);
+}
+
+.harness-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  border: var(--aurelia-effect-focus-ring-width) solid
+    var(--aurelia-color-warning);
+  border-radius: var(--aurelia-radius-md);
+  background: var(--aurelia-color-background-elevated);
+}
+
+.harness-banner span {
+  color: var(--aurelia-color-text-muted);
+}
+
+main {
+  max-width: 960px;
+}
+
+h1 {
+  font-size: var(--aurelia-type-size-title);
+  font-weight: var(--aurelia-type-weight-semibold);
+}
+
+h2 {
+  font-size: var(--aurelia-type-size-lg);
+  font-weight: var(--aurelia-type-weight-medium);
+  margin-top: 32px;
+}
+
+code {
+  font-family: var(--aurelia-type-family-monospace);
+}
+
+.lede,
+.mode-line {
+  color: var(--aurelia-color-text-muted);
+}
+
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--aurelia-space-md);
+}
+
+.swatch {
+  padding: var(--aurelia-space-md);
+  border-radius: var(--aurelia-radius-md);
+  border: 1px solid var(--aurelia-color-border);
+  background: var(--aurelia-color-background-elevated);
+}
+
+.swatch-color {
+  height: 48px;
+  border-radius: var(--aurelia-radius-sm);
+  border: 1px solid var(--aurelia-color-border);
+  margin-bottom: var(--aurelia-space-sm);
+}
+
+.swatch-label {
+  font-weight: var(--aurelia-type-weight-medium);
+}
+
+.swatch-value {
+  font-family: var(--aurelia-type-family-monospace);
+  font-size: var(--aurelia-type-size-sm);
+  color: var(--aurelia-color-text-muted);
+}
+
+.motion-sample {
+  display: inline-block;
+  padding: var(--aurelia-space-sm) var(--aurelia-space-md);
+  border-radius: var(--aurelia-radius-pill);
+  background: var(--aurelia-color-accent-subtle);
+  color: var(--aurelia-color-accent);
+  transition: transform var(--aurelia-motion-duration-normal)
+    var(--aurelia-motion-easing-standard);
+}
+
+.motion-sample:hover,
+.motion-sample:focus-visible {
+  transform: translateX(8px);
+}
+
+:focus-visible {
+  outline: var(--aurelia-effect-focus-ring-width) solid
+    var(--aurelia-color-accent);
+  outline-offset: var(--aurelia-effect-focus-ring-offset);
+}
+
+.controls button {
+  font: inherit;
+  padding: var(--aurelia-space-sm) var(--aurelia-space-md);
+  margin-right: var(--aurelia-space-sm);
+  border-radius: var(--aurelia-radius-sm);
+  border: 1px solid var(--aurelia-color-border);
+  background: var(--aurelia-color-background-elevated);
+  color: var(--aurelia-color-text);
+  cursor: pointer;
+}

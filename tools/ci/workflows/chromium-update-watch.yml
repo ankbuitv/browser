@@ -89,6 +89,9 @@ jobs:
             echo
             echo "Completion state: NOT STARTED"
           } > issue-body.md
+          # The label must exist or creation fails; create it on demand rather
+          # than depending on someone having done it by hand.
+          gh label create chore --color ededed --description "Maintenance" --force
           gh issue create --title "$title" --body-file issue-body.md --label chore
 
       - name: Summary

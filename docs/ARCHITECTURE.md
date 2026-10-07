@@ -101,12 +101,13 @@ One `tokens.json` generates the overlay CSS, a TypeScript module and the
 development harness stylesheet. CI fails if a generated file is stale, so the
 browser and the harness cannot drift.
 
-### Development harness (`packages/ui-lab`, planned)
+### Development harness (`packages/ui-lab`)
 
-An explicitly-labelled "UI development harness - not the Aurelia browser". Its
+An explicitly-labelled "UI development harness - not the Aurelia browser",
+served by `tools/dev/serve-ui-lab.mjs` (zero dependencies, no build step). Its
 only reason to exist is to iterate on components that will ship as Chromium
 WebUI resources, so it consumes the same tokens and (where practical) the same
-component code.
+component code. It is never shipped and never referenced by the overlay.
 
 ## What this architecture deliberately does not contain
 
