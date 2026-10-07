@@ -28,6 +28,7 @@ import {
 import { gnArgFiles, validateGnArgs } from '../chromium/gn-args.mjs';
 import { checkContrast } from '../design/check-contrast.mjs';
 import { checkDocsLinks } from './check-docs-links.mjs';
+import { checkPowerShellScripts } from './check-powershell.mjs';
 import { compareWorkflows } from './install-workflows.mjs';
 import { checkWorkflows } from './workflow-policy.mjs';
 import { scanRepository } from './secret-scan.mjs';
@@ -66,6 +67,7 @@ const REQUIRED_DOCS = [
   'docs/THREAT-MODEL.md',
   'docs/SYNC-ARCHITECTURE.md',
   'docs/TESTING.md',
+  'docs/LOCAL-WINDOWS-BUILD.md',
 ];
 
 export function runFastChecks({ log = console.log } = {}) {
@@ -214,6 +216,17 @@ export function runFastChecks({ log = console.log } = {}) {
         : `run node tools/ci/install-workflows.mjs (${drifted.join(', ')})`,
     );
   }
+
+  // Windows PowerShell cannot run on the CI runner, so the bootstrap script is
+  // linted structurally instead (see tools/ci/check-powershell.mjs).
+  const powerShell = checkPowerShellScripts();
+  record(
+    'PowerShell scripts are structurally sound',
+    powerShell.ok,
+    powerShell.ok
+      ? `${powerShell.files.length} script(s)`
+      : powerShell.problems.join('; '),
+  );
 
   const docLinks = checkDocsLinks();
   record(

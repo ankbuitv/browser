@@ -47,6 +47,11 @@ export const GN_ARG_POLICY = {
     allowed: ['0', '1', '2'],
     reason: 'documented symbol level',
   },
+  concurrent_links: {
+    allowed: ['1', '2'],
+    reason:
+      'upstream lever for memory-constrained machines: build/toolchain/concurrent_links.gni at the pinned revision ("we often want to run fewer links at once than we do compiles, because linking is memory-intensive"). Only small explicit values are allowed, and only for the low-resource experiment - the automatic value (-1) is upstream computing it from the machine. Explicit values are incompatible with thin LTO (upstream assert), which no Aurelia configuration enables',
+  },
   treat_warnings_as_errors: {
     allowed: ['true', 'false'],
     reason: 'upstream warnings must not fail a downstream build',
@@ -145,6 +150,41 @@ export function validateGnArgs(text, { policy = GN_ARG_POLICY } = {}) {
   return { entries, problems };
 }
 
+/**
+ * Split a single-line argument string back into pairs.
+ *
+ * `renderGnArgs` produces the exact text that goes into `gn gen --args=...`,
+ * so it has to be re-readable: if a value could not be parsed back, it would
+ * reach gn without ever having been checked. GN's own value grammar is larger
+ * than this, but every value in the reviewed policy is a boolean, a number or a
+ * quoted string, and anything else is reported as a problem instead of being
+ * passed through.
+ *
+ * @returns {{ entries: {key: string, value: string}[], problems: string[] }}
+ */
+export function parseGnArgsLine(text) {
+  const entries = [];
+  const problems = [];
+  const token = /([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("[^"]*"|'[^']*'|[^\s]+)/g;
+  let consumed = 0;
+  let match;
+  while ((match = token.exec(text)) !== null) {
+    const gap = text.slice(consumed, match.index);
+    if (gap.trim().length > 0) {
+      problems.push(
+        `unparsed text before \`${match[1]}\`: ${JSON.stringify(gap)}`,
+      );
+    }
+    consumed = token.lastIndex;
+    entries.push({ key: match[1], value: match[2] });
+  }
+  const rest = text.slice(consumed).trim();
+  if (rest.length > 0) {
+    problems.push(`unparsed text at the end: ${JSON.stringify(rest)}`);
+  }
+  return { entries, problems };
+}
+
 /** Single-line argument string for `gn gen --args="..."`. */
 export function renderGnArgs(entries) {
   return entries.map(({ key, value }) => `${key} = ${value}`).join(' ');
@@ -194,7 +234,19 @@ if (isMain) {
         failed ||= problems.length > 0;
         results.push({ file: target, entries, problems });
         if (print) {
-          console.log(renderGnArgs(entries));
+          const rendered = renderGnArgs(entries);
+          const reparsed = parseGnArgsLine(rendered);
+          if (reparsed.problems.length > 0) {
+            console.error(
+              `FAIL  ${path.relative(REPO_ROOT, target)}: the rendered argument string cannot be read back`,
+            );
+            for (const problem of reparsed.problems) {
+              console.error(`        ${problem}`);
+            }
+            failed = true;
+          } else {
+            console.log(rendered);
+          }
         } else if (json) {
           // collected below
         } else {
