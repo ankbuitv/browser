@@ -25,6 +25,7 @@ describe('local build driver', () => {
       'stage',
       'smoke-test',
       'record',
+      'package',
     ]);
   });
 
@@ -105,6 +106,87 @@ describe('local build driver', () => {
       cursor = index;
     }
     expect(BUILD_STAGES.length).toBeGreaterThanOrEqual(markers.length);
+  });
+
+  it('selects the low-resource GN profile and its disk floor explicitly', () => {
+    const low = buildPlan({
+      dest: 'D:/chromium',
+      profile: 'low-resource',
+      jobs: 2,
+    });
+    const commands = low.flatMap((stage) => stage.commands);
+    const gnArgs = commands.find((command) =>
+      command.args.some((argument) =>
+        argument.endsWith('win-x64-low-resource.gn'),
+      ),
+    );
+    expect(gnArgs).toBeDefined();
+    const preflight = commands.find((command) =>
+      command.args.includes('--check-only'),
+    );
+    expect(preflight.args).toContain('--low-resource-experiment');
+    const sync = commands.find(
+      (command) =>
+        command.args.some((argument) => argument.endsWith('sync.mjs')) &&
+        !command.args.includes('--check-only'),
+    );
+    expect(sync.args).toContain('--low-resource-experiment');
+    const compile = commands.find((command) => command.file === 'autoninja');
+    expect(compile.args).toContain('-j');
+    expect(compile.args).toContain('2');
+  });
+
+  it('never runs the low-resource profile without a job limit', () => {
+    const low = buildPlan({ dest: 'D:/chromium', profile: 'low-resource' });
+    const compile = low
+      .flatMap((stage) => stage.commands)
+      .find((command) => command.file === 'autoninja');
+    expect(compile.args).toEqual(['-C', 'out/Release', '-j', '1', 'chrome']);
+  });
+
+  it('leaves ninja unbounded only in the documented dev profile', () => {
+    const dev = buildPlan({ dest: 'D:/chromium' });
+    const compile = dev
+      .flatMap((stage) => stage.commands)
+      .find((command) => command.file === 'autoninja');
+    expect(compile.args).toEqual(['-C', 'out/Release', 'chrome']);
+  });
+
+  it('supports resuming a single stage or a subset', () => {
+    const only = buildPlan({
+      dest: 'D:/chromium',
+      only: ['sync', 'compile', 'package'],
+    });
+    expect(only.map((stage) => stage.id)).toEqual([
+      'sync',
+      'compile',
+      'package',
+    ]);
+    const smoke = buildPlan({ dest: 'D:/chromium', only: ['smoke-test'] });
+    expect(smoke.map((stage) => stage.id)).toEqual(['smoke-test']);
+  });
+
+  it('refuses unknown profiles and unknown stage names instead of guessing', () => {
+    expect(() =>
+      buildPlan({ dest: 'D:/chromium', profile: 'official' }),
+    ).toThrow(/unknown profile/);
+    expect(() =>
+      buildPlan({ dest: 'D:/chromium', only: ['sync', 'everything'] }),
+    ).toThrow(/unknown stage/);
+  });
+
+  it('names a log file for every stage that can be resumed', () => {
+    const plan = buildPlan({ dest: 'D:/chromium' });
+    for (const stage of plan) {
+      for (const command of stage.commands) {
+        expect(typeof command.logName).toBe('string');
+        expect(command.logName.endsWith('.log')).toBe(true);
+      }
+    }
+    const gnGen = plan.find((stage) => stage.id === 'gn-gen');
+    expect(gnGen.commands.some((command) => command.logName === 'gn.log')).toBe(
+      true,
+    );
   });
 
   it('states the ladder without collapsing any step', () => {
