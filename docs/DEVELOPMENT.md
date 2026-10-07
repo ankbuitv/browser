@@ -114,6 +114,26 @@ drifts. If a push is rejected with `without workflows permission`, the
 definitions can also be added through GitHub's web editor by a maintainer; they
 are plain YAML with pinned action SHAs (see `tools/ci/actions-pins.json`).
 
+## Creating issues from a restricted environment
+
+Issue creation works with the repository's GitHub integration, but labels,
+milestones, comments and state changes may be rejected (`Resource not accessible
+by integration`) depending on the credential's permissions. A label or milestone
+passed at creation time is silently dropped in that case, so an issue must never
+rely on them being applied.
+
+Write the intended milestone and labels into the issue body itself, for example:
+
+```markdown
+**Milestone:** M3 — Privacy & blocking
+**Labels:** area:privacy, verification
+```
+
+Trackers and reports should treat the body as the source of truth until a
+credential with issue-write permission applies the metadata. When organising the
+tracker, verify with `gh api repos/OWNER/REPO/issues/N --jq .milestone` rather
+than assuming the request succeeded.
+
 ## Working with the Chromium pin
 
 Never edit `chromium/patches/*.patch` by hand. Edit
