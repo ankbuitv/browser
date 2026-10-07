@@ -54,7 +54,7 @@ does not give a Chromium fork what it needs.
 
 | Option                          | Verdict                                                                                                                                                                                                                                                                                                                                          |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| GitHub-hosted `windows-latest`  | **Not used.** Ephemeral, no persistent checkout, quota-burning; requirements must be re-checked against GitHub's documentation before anyone revisits this.                                                                                                                                                                                      |
+| GitHub-hosted `windows-latest`  | **Measured 2026-10-07: fails the minimums.** 4 logical cores / 16 GB RAM / 147 GB free disk against 8 / 32 / 150 (`win25-vs2026`, image `20260925.250.1`). The experiment stopped before syncing. Ephemeral and quota-burning even when it has the size.                                                                                         |
 | Larger hosted runners           | Would address size, **not** persistence or quota. Not attempted.                                                                                                                                                                                                                                                                                 |
 | Self-hosted Windows x64 builder | **Required.** Labels `[self-hosted, windows, x64, aurelia-chromium]`; `tools/ci/check-builder.mjs` refuses to start on a machine below the minimums, so a misprovisioned runner fails in seconds with a precise message instead of failing in hour five. Run it before provisioning: `node tools/ci/check-builder.mjs --dest <checkout-parent>`. |
 
@@ -68,11 +68,35 @@ RESOURCE LIMIT. Only a machine that meets the minimums is allowed one
 controlled build attempt. The minimums are not lowered to make the run happen:
 a cheap, early RESOURCE LIMIT with measured numbers is the useful outcome.
 
+### Measured: the standard hosted Windows runner (2026-10-07)
+
+[Run 37595986333](https://github.com/ankbuitv/browser/actions/runs/37595986333)
+(push-triggered verification run, `windows-latest`, preflight only) measured the
+machine, classified it, and skipped every stage from the Chromium sync onwards.
+
+| Item                    | Measured                                                      | Minimum |
+| ----------------------- | ------------------------------------------------------------- | ------- |
+| Image                   | `win25-vs2026`, image `20260925.250.1` (Windows Server 2025)  | -       |
+| CPU                     | AMD EPYC 7763, **4 logical cores**                            | 8+      |
+| RAM                     | **16 GB** (13.3 GB available)                                 | 32 GB+  |
+| Free disk (best volume) | **147 GB** (`D:`; `C:` and `TEMP` 32.1 GB free each)          | 150 GB+ |
+| Verdict                 | **RESOURCE LIMIT** - three problems, reported before any sync | -       |
+
+The run failed by design (`Fail as RESOURCE LIMIT`, exit 1) with the annotation
+`logical cores: 4 (needs 8+); RAM: 16 GB (needs 32 GB+); free disk: 147 GB
+(needs 150 GB+ on one volume; the Chromium checkout is persistent)`, and its
+artifact holds `artifacts/hosted-preflight.json` and
+`artifacts/runner-capabilities.json`. No Chromium sync and no build attempt
+happened on that machine, and none should: the numbers are hard to move (a
+larger hosted runner would still be ephemeral and quota-burning), so the
+self-hosted `[self-hosted, windows, x64, aurelia-chromium]` builder remains the
+only path. Re-measure by dispatching the experiment workflow (Actions UI) if
+GitHub changes its images.
+
 ## The same pipeline without GitHub
 
 `tools/chromium/build.mjs` runs the identical stages locally (`--dry-run` prints
-the plan). A builder therefore does not depend on Actions being available -
-which matters while the workflow definitions cannot be deployed (issue #5).
+the plan). A builder therefore does not depend on Actions being available.
 
 ## How the pipeline enforces this
 
