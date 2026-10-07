@@ -91,12 +91,27 @@ Two properties hold regardless of which VM answers:
   `$env:RUNNER_TEMP` (which is on `C:`) fails on disk long before it fails on
   time. The constrained experiment picks the roomiest NTFS volume instead and
   points `TMP`/`TEMP` at it too.
-- **The preinstalled Windows SDK is older than Chromium's pin.** The image
-  ships 10.0.26100.0; the pinned Chromium requires 10.0.28000.0
-  (`SDK_VERSION` in `build/vs_toolchain.py`) and downloads its own into
-  `depot_tools/win_toolchain/vs_files` unless `DEPOT_TOOLS_WIN_TOOLCHAIN=0`.
-  Pointing the build at the local install would therefore fail on the SDK
-  version, not save a download.
+- **The preinstalled Windows SDK is older than Chromium's pin, and the
+  packaged toolchain is not public.** The image ships 10.0.26100.0; the pinned
+  Chromium requires 10.0.28000.0 (`SDK_VERSION` in `build/vs_toolchain.py`),
+  and `build/toolchain/win/setup_toolchain.py` passes that literal to
+  `vcvarsall.bat` — no GN argument changes it. Chromium's packaged toolchain
+  would supply it, but depot_tools' own `win_toolchain` README says
+  `get_toolchain_if_necessary.py` "uses gsutil to download the zip ... This
+  requires authentication with @google.com credentials". A hosted run asked
+  anonymously and was refused:
+
+  ```
+  401 Anonymous caller does not have storage.objects.list access to the Google
+  Cloud Storage bucket ... chrome-wintoolchain
+  No downloadable toolchain found. In order to use your locally installed
+  version of Visual Studio to build Chrome please set DEPOT_TOOLS_WIN_TOOLCHAIN=0.
+  ```
+
+  So `DEPOT_TOOLS_WIN_TOOLCHAIN=0` is not an optimisation here, it is the only
+  setting that can work at all outside Google — and the pinned SDK then has to
+  be installed on the image rather than downloaded with the toolchain. See
+  [HOSTED-CONSTRAINED-EXPERIMENT.md](HOSTED-CONSTRAINED-EXPERIMENT.md).
 
 The run failed by design (`Fail as RESOURCE LIMIT`, exit 1) with the annotation
 `logical cores: 4 (needs 8+); RAM: 16 GB (needs 32 GB+); free disk: 147 GB

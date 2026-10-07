@@ -11,26 +11,28 @@ automation credential cannot create workflow_dispatch events:
 Removed again once the run has FINISHED - not while it is in flight, because
 editing the workflow's trigger set cancels the run that is flying.
 
-Run 6
+Run 7
 -----
-Run 1 (37639529172): died in 30 s on two bugs in the new measurement code.
-Run 2 (37641104136): reached the Chromium sync, failed after ~18 min, could
-  not say why.
-Run 3 (37644814138): cancelled by the commit that retired this trigger while
-  it was still flying.
-Run 4 (37645409971): died in 1 s - the sync step asked `gclient help sync`
-  about a depot_tools that did not exist yet.
-Run 5 (37650136484): the first run that could explain itself. The constrained
-  sync finished in about an hour, then the DEPS hook that downloads the
-  pinned Visual Studio toolchain and Windows SDK 10.0.28000.0 failed:
+Run 1: died in 30 s on two measurement bugs.
+Run 2: reached the sync, failed after ~18 min, could not say why.
+Run 3: cancelled by the commit that retired this trigger mid-flight.
+Run 4: died in 1 s on a `gclient` that did not exist yet.
+Run 5: the sync finished in an hour, then the DEPS hook that downloads the
+  pinned Visual Studio toolchain failed - with nothing left to retry with.
+Run 6: the constrained sync finished in 19 minutes. The toolchain hook then
+  said, in plain terms:
 
-    get_toolchain_if_necessary.py --output-json
-      D:\aurelia\src\build\win_toolchain.json 3bfcb536c8 --force
-    exited 1 -> gclient sync exited with code 2
+    401 Anonymous caller does not have storage.objects.list access to the
+    Google Cloud Storage bucket ... chrome-wintoolchain
+    No downloadable toolchain found. In order to use your locally installed
+    version of Visual Studio to build Chrome please set
+    DEPOT_TOOLS_WIN_TOOLCHAIN=0.
 
-  Nothing was left to retry with: the sync had spent the step's whole budget.
+  Chromium's packaged Windows toolchain is Google-internal (depot_tools'
+  win_toolchain README: "requires authentication with @google.com
+  credentials"), so DEPOT_TOOLS_WIN_TOOLCHAIN=1 was never going to work here.
 
-This run splits the two apart. The sync runs --nohooks and only fetches
-sources and dependencies; the toolchain and the remaining hooks get their own
-step with three attempts, so a failure costs minutes instead of the run, and
-says what it was. Every stage now publishes the tail of its log.
+This run builds with the Visual Studio on the image instead, and installs the
+one Windows SDK the pin demands - 10.0.28000.0, read out of the checkout
+rather than hard-coded - because the image carries 10.0.26100.0 and
+setup_toolchain.py asks vcvarsall.bat for the pinned version by name.

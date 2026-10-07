@@ -124,7 +124,8 @@ checkout Aurelia
   -> classify against the documented minimums (never lowered)
   -> apply the experimental floor (tools/chromium/low-resource.mjs)
   -> reclaim disk from the allowlist
-  -> constrained gclient sync at the pinned revision
+  -> constrained gclient sync at the pinned revision (--nohooks)
+  -> install the pinned toolchain and run the remaining DEPS hooks
   -> verify HEAD, verify the Aurelia patches, install the overlay
   -> verify the fork delta
   -> gn gen with the reviewed low-resource arguments
@@ -133,6 +134,76 @@ checkout Aurelia
   -> if it compiled: stage -> smoke test -> record -> package
   -> always: collect the evidence and classify the failure
 ```
+
+## The toolchain: what the pinned revision demands, and what is actually
+
+## obtainable
+
+Chromium builds against **one exact** Windows SDK, and demands it by name. At
+the pinned revision `build/vs_toolchain.py` carries `SDK_VERSION =
+'10.0.28000.0'`, `build/toolchain/win/setup_toolchain.py` carries the same
+literal and passes it as the second argument to `vcvarsall.bat`, and no GN
+argument changes either one. `build/config/win/visual_studio_version.gni` will
+take a `windows_sdk_version` of your choosing — but only on the branch where
+`visual_studio_path` is set too, which then also demands `wdk_path`, and the
+`vcvarsall.bat` call still uses the hard-coded version.
+
+Three things follow, each of them measured on a real runner:
+
+1. **The packaged toolchain is not available to this repository.** depot_tools'
+   own `win_toolchain` README says `get_toolchain_if_necessary.py` "uses gsutil
+   to download the zip ... This requires authentication with @google.com
+   credentials". Run 6 asked anonymously and got `401 Anonymous caller does not
+have storage.objects.list access ... chrome-wintoolchain` — followed by
+   Chromium's own advice to set `DEPOT_TOOLS_WIN_TOOLCHAIN=0`. So `0` is not a
+   cost-saving measure here; with `1` there is no build at all outside Google.
+2. **The SDK the pin demands is not on the image**, which ships 10.0.26100.0.
+   It is a real, installable Visual Studio component, so the run installs
+   `Microsoft.VisualStudio.Component.Windows10SDK.<pinned version>` before
+   `gn gen` — reading the version out of the checkout rather than hard-coding
+   it, so the step cannot drift from the pin.
+3. **The hook that used to fetch all of this is the wrong place for it.** Run 5
+   left it inside the sync; it failed after an hour of an otherwise clean
+   checkout, and with the step's budget already spent there was nothing left to
+   retry with. The sync now runs `--nohooks` and fetches sources and
+   dependencies only, and the hooks get their own stage with three attempts, so
+   a failure costs minutes instead of the run.
+
+## Reading a run
+
+The runner's logs are not reachable from every environment that has to audit
+one of these runs: `gh run download` and `gh run view --log` both fail at the
+blob store, and `gh api .../check-runs/<id> --jq .output` returns nothing for
+an Actions job. **Job annotations are the only channel that survives**, so each
+stage publishes what it knows through them:
+
+- `tools/ci/publish-log-tail.ps1` echoes the tail of a failing log as `::error`
+  annotations. It sends thirty lines as ten annotations of three, newest first,
+  because the runner keeps a step's first ten annotations and drops the rest —
+  a naive tail loses the lines nearest the failure, which is where the answer
+  is.
+- Every attempt announces itself (`::notice title=Sync attempt 1 of 3`), so how
+  far a run got is visible even when nothing it produced can be downloaded.
+- The evidence step ends with one `::error` carrying the classification and one
+  `::notice` per recorded shape.
+
+Read them with:
+
+```
+gh api repos/ankbuitv/browser/actions/runs/<run-id>/jobs --jq '.jobs[0].id'
+gh api repos/ankbuitv/browser/check-runs/<job-id>/annotations
+```
+
+Two operational rules were bought with wasted runs:
+
+- **Do not edit the workflow while one of its runs is in flight.** Changing the
+  trigger set cancels it — run 3 was destroyed by the very commit that retired
+  its temporary push trigger.
+- **Do not ask a tool a question it cannot answer yet.** depot_tools does not
+  exist until the sync has produced it, so `gclient help sync` in the sync step
+  is a `CommandNotFoundException` that ends the step in about a second (run 4).
+  `tools/chromium/sync.mjs` asks the same question after installing
+  depot_tools, which is when it has an answer.
 
 ## Failure classification
 

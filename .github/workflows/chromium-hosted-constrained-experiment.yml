@@ -106,13 +106,26 @@ jobs:
       EXPERIMENT_COMPILE_BUDGET_MINUTES: ${{ github.event.inputs.compile_budget_minutes || '150' }}
       EXPERIMENT_DISK_RESERVE_GB: ${{ github.event.inputs.disk_reserve_gb || '10' }}
       EXPERIMENT_REASON: ${{ github.event.inputs.reason || 'unspecified' }}
-      # Chromium downloads the toolchain and the Windows SDK it pins
-      # (SDK_VERSION = '10.0.28000.0', build/vs_toolchain.py at the pinned
-      # revision) into depot_tools/win_toolchain/vs_files unless this is 0.
-      # It is left at 1 on purpose: the SDK preinstalled on GitHub's Windows
-      # image is 10.0.26100.0, which is *older* than the pin, so pointing the
-      # build at the local install would fail on the SDK version check.
-      DEPOT_TOOLS_WIN_TOOLCHAIN: '1'
+      # 0 = build with the Visual Studio installed on the image, not with the
+      # toolchain Chromium packages for its own developers.
+      #
+      # This is not a preference, and it reverses an earlier decision in this
+      # file. Chromium's packaged Windows toolchain is not public: depot_tools'
+      # own win_toolchain README says get_toolchain_if_necessary.py "uses
+      # gsutil to download the zip ... This requires authentication with
+      # @google.com credentials". Run 6 asked for it anonymously and got
+      #
+      #   401 Anonymous caller does not have storage.objects.list access to
+      #   the Google Cloud Storage bucket ... chrome-wintoolchain
+      #   No downloadable toolchain found. In order to use your locally
+      #   installed version of Visual Studio to build Chrome please set
+      #   DEPOT_TOOLS_WIN_TOOLCHAIN=0.
+      #
+      # With 1 there is no build at all outside Google, so 0 is the only
+      # setting that can work - and it means the Windows SDK the pin demands
+      # (SDK_VERSION = '10.0.28000.0') has to be installed on the image, which
+      # carries 10.0.26100.0. The next step does that.
+      DEPOT_TOOLS_WIN_TOOLCHAIN: '0'
     steps:
       - name: Check out Aurelia
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -372,11 +385,11 @@ jobs:
           # Visual Studio C++ toolset, a Windows SDK, git and Node. Anything
           # below it is refused, because filling a disk or thrashing swap for
           # hours is not a useful experiment.
-          # --allow-missing-sdk is deliberate and evidenced: Chromium downloads
-          # the SDK it pins (10.0.28000.0 at the pinned revision) into
-          # depot_tools/win_toolchain/vs_files unless DEPOT_TOOLS_WIN_TOOLCHAIN
-          # is set to 0, so a machine with no SDK - or with GitHub's older
-          # 10.0.26100.0 - is not disqualified by its absence.
+          # --allow-missing-sdk is deliberate and evidenced: the SDK this
+          # revision pins (10.0.28000.0) is not on the image, which carries
+          # 10.0.26100.0, and it is installed by a later step rather than
+          # being expected to be there. The floor is about the machine being
+          # able to build at all, not about the SDK being preinstalled.
           $verdictJson = & node tools/chromium/low-resource.mjs --environment artifacts/hosted-constrained-environment.json --low-resource-experiment --allow-missing-sdk --json
           $code = $LASTEXITCODE
           # 0 = may proceed, 1 = refused by the floor (handled below, with the
@@ -624,6 +637,109 @@ jobs:
             ("{`"volume`":`"$env:AURELIA_BUILD_VOLUME`",`"freeGb`":$afterSync}`n"))
           Add-Content $env:GITHUB_STEP_SUMMARY "- sync finished at $head; free disk on $env:AURELIA_BUILD_VOLUME : $afterSync GB"
 
+      - name: Install the pinned Windows SDK
+        id: sdk
+        if: steps.sync.outcome == 'success'
+        shell: pwsh
+        timeout-minutes: 45
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          New-Item -ItemType Directory -Force -Path 'artifacts/logs' | Out-Null
+
+          # Chromium demands one exact Windows SDK. build/vs_toolchain.py at
+          # the pinned revision carries SDK_VERSION, and
+          # build/toolchain/win/setup_toolchain.py passes that literal to
+          # vcvarsall.bat - no GN argument changes it, and there is no
+          # "closest available" fallback - so the SDK on the image
+          # (10.0.26100.0) is not a substitute for the pinned one.
+          $vsToolchain = Join-Path $env:AURELIA_CHROMIUM_DEST 'src/build/vs_toolchain.py'
+          $sdkVersion = $null
+          if (Test-Path $vsToolchain) {
+            $hit = @(Select-String -Path $vsToolchain -Pattern "^SDK_VERSION\s*=\s*'([^']+)'" | Select-Object -First 1)
+            if ($hit.Count -gt 0) { $sdkVersion = $hit[0].Matches[0].Groups[1].Value }
+          }
+          if ([string]::IsNullOrWhiteSpace($sdkVersion)) {
+            Write-Host '::error title=Windows SDK::SDK_VERSION could not be read from src/build/vs_toolchain.py'
+            throw 'the pinned Windows SDK version is unknown'
+          }
+
+          $kitsRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10'
+          $sdkInclude = Join-Path (Join-Path $kitsRoot 'Include') $sdkVersion
+          $installed = @(Get-ChildItem (Join-Path $kitsRoot 'Include') -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+          $presentBefore = Test-Path $sdkInclude
+          Write-Host "::notice title=Windows SDK::pinned $sdkVersion | on the image before this step: $presentBefore | installed: $($installed -join ', ')"
+
+          # Visual Studio 2026 lives in <ProgramFiles>/Microsoft Visual
+          # Studio/18/<edition> (MSVS_VERSIONS in the same script), which is
+          # also where Chromium's own detection looks for it.
+          $vsPath = $null
+          foreach ($edition in @('Enterprise', 'Professional', 'Community', 'Preview', 'Insiders', 'BuildTools')) {
+            $candidate = Join-Path (Join-Path ${env:ProgramFiles} 'Microsoft Visual Studio/18') $edition
+            if (Test-Path $candidate) { $vsPath = $candidate; break }
+          }
+          Write-Host "::notice title=Visual Studio::detected $vsPath"
+
+          $component = "Microsoft.VisualStudio.Component.Windows10SDK.$sdkVersion"
+          $installerUsed = $null
+          if (-not $presentBefore) {
+            if ([string]::IsNullOrWhiteSpace($vsPath)) {
+              Write-Host '::error title=Windows SDK::no Visual Studio installation path found, so the pinned SDK component cannot be added'
+            } else {
+              foreach ($installer in @(
+                  'C:\Program Files (x86)\Microsoft Visual Studio\Installer\setup.exe',
+                  'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe')) {
+                if (-not (Test-Path $installer)) { continue }
+                $installerUsed = $installer
+                Write-Host "::notice title=Windows SDK::adding $component with $installer"
+                $proc = Start-Process -FilePath $installer -PassThru -NoNewWindow `
+                  -ArgumentList @('modify', '--installPath', $vsPath, '--add', $component, '--quiet', '--norestart', '--nocache') `
+                  -RedirectStandardOutput 'artifacts/logs/sdk-install.out.log' `
+                  -RedirectStandardError  'artifacts/logs/sdk-install.err.log'
+                # The installer is a launcher that hands off to a service, so
+                # waiting for the process is not enough: wait for the SDK to
+                # show up, or for half an hour to pass.
+                $deadline = (Get-Date).AddMinutes(30)
+                while (-not $proc.HasExited) {
+                  if (Test-Path $sdkInclude) { break }
+                  if ((Get-Date) -ge $deadline) { break }
+                  Start-Sleep -Seconds 20
+                }
+                Start-Sleep -Seconds 20
+                if (-not $proc.HasExited) {
+                  & taskkill /pid $proc.Id /t /f 2>$null | Out-Null
+                  # Native stderr is not an error here, but swallowing the
+                  # exit code would be: a taskkill that fails leaves the
+                  # installer running until the step times out.
+                  if ($LASTEXITCODE -ne 0) {
+                    Write-Host "::warning title=Windows SDK::taskkill on the installer (pid $($proc.Id)) exited $LASTEXITCODE"
+                  }
+                }
+                Write-Host "installer exit code: $($proc.ExitCode)"
+                if (Test-Path $sdkInclude) { break }
+              }
+            }
+          }
+
+          $presentAfter = Test-Path $sdkInclude
+          if (-not $presentAfter) {
+            Write-Host "::error title=Windows SDK::$sdkVersion is still absent after the install attempt; setup_toolchain.py asks vcvarsall.bat for it by name, so gn gen is expected to fail"
+          } else {
+            Write-Host "::notice title=Windows SDK::$sdkVersion present after the install attempt"
+          }
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) 'artifacts/hosted-constrained-sdk.json'),
+            ($([ordered]@{
+              version       = $sdkVersion
+              presentBefore = $presentBefore
+              presentAfter  = $presentAfter
+              installed     = $installed
+              vsPath        = $vsPath
+              component     = $component
+              installer     = $installerUsed
+            } | ConvertTo-Json -Depth 3) + "`n"))
+          Add-Content $env:GITHUB_STEP_SUMMARY "- pinned Windows SDK $sdkVersion : present before = $presentBefore, after = $presentAfter"
+
       - name: Install the pinned toolchain and run the remaining DEPS hooks
         id: hooks
         if: steps.sync.outcome == 'success'
@@ -680,12 +796,16 @@ jobs:
           }
           if ($hookExit -ne 0) { throw "the DEPS hooks failed with exit code $hookExit" }
           Add-Content $env:GITHUB_STEP_SUMMARY "- toolchain and hooks: $hookShape"
+          # build/win_toolchain.json is written by the packaged-toolchain
+          # download, which does not happen when DEPOT_TOOLS_WIN_TOOLCHAIN is
+          # 0 - there is nothing to describe, the local install is used
+          # instead. Its absence is therefore expected, not a failure.
           $toolchainJson = Join-Path $env:AURELIA_CHROMIUM_DEST 'src/build/win_toolchain.json'
           if (Test-Path $toolchainJson) {
             Copy-Item $toolchainJson 'artifacts/'
             Add-Content $env:GITHUB_STEP_SUMMARY "- win_toolchain.json: ``$(Get-Content $toolchainJson -Raw -replace '\s+', ' ')``"
           } else {
-            Write-Host '::error title=DEPS hooks::gclient runhooks succeeded but src/build/win_toolchain.json is absent; gn gen cannot resolve the toolchain'
+            Write-Host '::notice title=DEPS hooks::no src/build/win_toolchain.json: DEPOT_TOOLS_WIN_TOOLCHAIN=0 uses the Visual Studio on the image, which writes nothing for gn to read back'
           }
 
       - name: Verify the patch set against the pristine checkout
@@ -965,6 +1085,7 @@ jobs:
           $compile   = Read-JsonFile 'artifacts/hosted-constrained-compile.json'
           $syncInfo  = Read-JsonFile 'artifacts/hosted-constrained-sync.json'
           $hooksInfo = Read-JsonFile 'artifacts/hosted-constrained-hooks.json'
+          $sdkInfo   = Read-JsonFile 'artifacts/hosted-constrained-sdk.json'
           $capabilities = Read-JsonFile 'artifacts/runner-capabilities.json'
 
           # --- the last stage that actually finished -------------------------
@@ -973,7 +1094,7 @@ jobs:
             'apply the experiment floor' = (($verdict -ne $null) -and ($verdict.ok -eq $true))
             'reclaim disk'             = ($reclaim -ne $null)
             'gclient sync'             = ((Test-Path (Join-Path $src '.git')) -and ($afterSync -ne $null))
-            'toolchain + hooks'        = ((Test-Path (Join-Path $src 'build/win_toolchain.json')) -and ($hooksInfo -ne $null) -and ($hooksInfo.exitCode -eq 0))
+            'toolchain + hooks'        = (($hooksInfo -ne $null) -and ($hooksInfo.exitCode -eq 0))
             'verify patches'           = (Test-Path 'artifacts/logs/verify-patches.log')
             'install overlay + patches' = ((Test-Path (Join-Path $src 'chrome/browser/ui/webui/aurelia/aurelia_ui.cc')) -and (Test-Path (Join-Path $src 'chrome/browser/resources/aurelia/aurelia.html')))
             'gn gen'                   = (Test-Path (Join-Path $src 'out/Release/build.ninja'))
@@ -1137,6 +1258,7 @@ jobs:
             }
             syncShape             = $(if ($syncInfo -ne $null) { $syncInfo.shape } else { $null })
             hookShape             = $(if ($hooksInfo -ne $null) { $hooksInfo.shape } else { $null })
+            windowsSdk            = $sdkInfo
             revisions             = [ordered]@{
               aurelia              = $env:GITHUB_SHA
               chromium             = $chromiumSha
