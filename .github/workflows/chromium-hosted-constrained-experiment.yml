@@ -127,14 +127,6 @@ jobs:
       # carries 10.0.26100.0. The next step does that.
       DEPOT_TOOLS_WIN_TOOLCHAIN: '0'
     steps:
-      - name: Check out Aurelia
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-
-      - name: Set up Node.js (tooling only; never a browser runtime dependency)
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '22'
-
       - name: Configure git the way the pinned Chromium requires on Windows
         shell: pwsh
         timeout-minutes: 5
@@ -142,12 +134,15 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
           # docs/windows_build_instructions.md at the pinned revision asks for
-          # exactly this before fetching, and it is not cosmetic: the patch
-          # verification reads upstream blobs with `git show` and digests them
-          # against pre-images recorded from the upstream API. Any line-ending
-          # conversion between the two changes the bytes and fails the check,
-          # on Windows only - which is what run 7 did, in seven seconds, while
-          # the same patch set verified cleanly through the API.
+          # exactly this before fetching, and it is not cosmetic.
+          #
+          # It also has to happen *before* this repository is checked out, not
+          # after. The patch set carries digests of the patch files
+          # themselves, and those digests are of bytes: if the checkout
+          # converts line endings, `chromium/patches/*.patch` arrives as CRLF
+          # and no longer matches its recorded sha256 - which is one way to
+          # fail the patch verification on Windows while passing it on Linux,
+          # with the same patch set.
           #
           # core.longpaths also matters for Chromium's own directory depth.
           $settings = [ordered]@{
@@ -163,6 +158,14 @@ jobs:
           }
           $shown = @($settings.Keys | ForEach-Object { "$_=$( & git config --global $_ )" })
           Write-Host "::notice title=git configuration::$($shown -join '; ')"
+
+      - name: Check out Aurelia
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Node.js (tooling only; never a browser runtime dependency)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
 
       - name: Measure the runner and choose the build volume
         id: measure

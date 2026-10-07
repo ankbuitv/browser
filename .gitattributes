@@ -1,0 +1,15 @@
+# Aurelia Browser - files whose bytes are part of the build contract.
+#
+# Every patch in chromium/patches carries the sha256 of its own bytes in its
+# .meta.json, and `node tools/chromium/cli.mjs verify-patches` recomputes that
+# digest from the checked-out file before it will let a build start. Any
+# line-ending conversion changes the bytes, so a Windows checkout made with
+# core.autocrlf=true produced CRLF patch files that matched neither their
+# recorded digest nor the unified-diff grammar - while the same checkout on
+# Linux passed both, and the same patch set verified cleanly against upstream.
+#
+# `text eol=lf` pins the checkout to LF on every platform and overrides
+# core.autocrlf, so the bytes on disk are the bytes in the repository no
+# matter how the machine that cloned it is configured.
+chromium/patches/*.patch text eol=lf
+chromium/patches/*.meta.json text eol=lf
