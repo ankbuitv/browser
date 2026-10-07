@@ -58,6 +58,12 @@ does not give a Chromium fork what it needs.
 | Larger hosted runners           | Would address size, **not** persistence or quota. Not attempted.                                                                                                                                                                         |
 | Self-hosted Windows x64 builder | **Required.** Labels `[self-hosted, windows, x64, aurelia-chromium]`; the workflow refuses to start on a machine below the minimums, so a misprovisioned runner fails in seconds with a precise message instead of failing in hour five. |
 
+## The same pipeline without GitHub
+
+`tools/chromium/build.mjs` runs the identical stages locally (`--dry-run` prints
+the plan). A builder therefore does not depend on Actions being available -
+which matters while the workflow definitions cannot be deployed (issue #5).
+
 ## How the pipeline enforces this
 
 - `runs-on: [self-hosted, windows, x64, aurelia-chromium]` — a hosted runner

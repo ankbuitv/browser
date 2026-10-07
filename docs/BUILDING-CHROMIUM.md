@@ -91,7 +91,22 @@ be reproduced, and an unattributed failure wastes hours.
 
 ## Building
 
-Use the reviewed argument set; do not invent arguments per machine.
+On a provisioned builder, one command runs the whole pipeline (the same stages
+the heavy-build workflow runs, in the same order):
+
+```bash
+node tools/chromium/build.mjs --dest <checkout-parent>          # full pipeline
+node tools/chromium/build.mjs --dest <checkout-parent> --dry-run # print the plan
+node tools/chromium/build.mjs --dest <checkout-parent> --skip-sync
+```
+
+It runs preflight → sync → verify patches → install overlay → fork-delta budget
+→ GN argument policy → `gn gen` → `autoninja` → stage → smoke test → record,
+and prints which ladder state the run reached. Nothing is skipped silently and
+no stage weakens the browser.
+
+The same steps by hand, with the reviewed argument set - do not invent
+arguments per machine.
 
 ```bash
 cd /srv/aurelia-chromium/src
