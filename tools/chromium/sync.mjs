@@ -62,6 +62,18 @@ const CHROMIUM_SOURCE_URL =
 export const NO_HISTORY_FLAG = '--no-history';
 
 /**
+ * The gclient flag that fetches sources and dependencies without running the
+ * DEPS hooks.
+ *
+ * The hooks are where Chromium downloads the pinned Visual Studio toolchain
+ * and Windows SDK (build/vs_toolchain.py -> get_toolchain_if_necessary.py).
+ * That is the one network step that is large, opaque and not resumable, so
+ * the constrained experiment keeps it out of the hour-long sync and runs it
+ * on its own, where it can be retried and its failure read.
+ */
+export const NO_HOOKS_FLAG = '--nohooks';
+
+/**
  * The .gclient text for a checkout.
  *
  * Two optional, DEPS-documented reductions are supported, and both are off by
@@ -167,6 +179,7 @@ export function resolveSyncArgs({
   withRefs = false,
   noHistory = false,
   supportsNoHistory = false,
+  noHooks = false,
 } = {}) {
   if (typeof revision !== 'string' || revision.length === 0) {
     throw new Error('resolveSyncArgs requires a pinned revision');
@@ -177,6 +190,9 @@ export function resolveSyncArgs({
   }
   if (noHistory && supportsNoHistory) {
     args.push(NO_HISTORY_FLAG);
+  }
+  if (noHooks) {
+    args.push(NO_HOOKS_FLAG);
   }
   return args;
 }
@@ -328,6 +344,7 @@ export function syncCheckout({
   withRefs = false,
   lowResourceExperiment = false,
   noHistory = false,
+  noHooks = false,
   targetOs = null,
   smallCheckout = false,
   config,
@@ -376,6 +393,7 @@ export function syncCheckout({
     withRefs,
     noHistory,
     supportsNoHistory,
+    noHooks,
   });
   // Streamed, not captured: a sync takes tens of minutes and writes progress
   // the operator wants to see. On Windows this goes through cmd.exe
@@ -487,6 +505,7 @@ function main(argv) {
     withRefs: argv.includes('--with-refs'),
     lowResourceExperiment: argv.includes('--low-resource-experiment'),
     noHistory: argv.includes('--no-history'),
+    noHooks: argv.includes('--no-hooks'),
     targetOs: parseList(argv, '--target-os'),
     smallCheckout: argv.includes('--small-checkout'),
     config,

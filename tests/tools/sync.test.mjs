@@ -109,6 +109,19 @@ describe('gclient sync argument resolution', () => {
     ).not.toContain(NO_HISTORY_FLAG);
   });
 
+  it('separates the sources from the DEPS hooks only when asked', () => {
+    // On a hosted runner the hooks are the fragile part: one of them
+    // downloads the pinned Visual Studio toolchain and Windows SDK, and its
+    // failure used to take the whole hour-long sync down with it.
+    expect(resolveSyncArgs({ revision: 'abc' })).not.toContain('--nohooks');
+    expect(resolveSyncArgs({ revision: 'abc', noHooks: true })).toContain(
+      '--nohooks',
+    );
+    expect(
+      resolveSyncArgs({ revision: 'abc', noHooks: true }).slice(0, 3),
+    ).toEqual(['sync', '--revision', 'src@abc']);
+  });
+
   it('never drops the revision pin to make the sync smaller', () => {
     const args = resolveSyncArgs({
       revision: 'deadbeef',

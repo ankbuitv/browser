@@ -533,23 +533,8 @@ jobs:
 
           # This repository's logs are not readable by every tool that needs to
           # audit a run, so a failure has to be pushed somewhere that is: job
-          # annotations, which the checks API returns. Publish-LogTail echoes
-          # the tail of a log as ::error annotations (escaped, truncated,
-          # and kept well under the ten-annotations-per-step limit, which
-          # keeps the first ten and silently discards the rest).
-          function Publish-LogTail {
-            param([string]$Path, [string]$Title, [int]$Count = 8)
-            if ([string]::IsNullOrWhiteSpace($Path)) { return }
-            if (-not (Test-Path $Path)) { return }
-            $lines = @(Get-Content $Path -Tail 400 -ErrorAction SilentlyContinue |
-              Where-Object { $_.Trim().Length -gt 0 })
-            if ($lines.Count -eq 0) { return }
-            foreach ($line in ($lines | Select-Object -Last $Count)) {
-              $text = ($line.Trim() -replace '%', '%25' -replace "`r", '' -replace "`n", ' ')
-              if ($text.Length -gt 480) { $text = $text.Substring(0, 480) }
-              Write-Host "::error title=$Title::$text"
-            }
-          }
+          # annotations, which the checks API returns.
+          . .\tools\ci\publish-log-tail.ps1
 
           # `--no-history` is NOT gated here. tools/chromium/sync.mjs asks
           # `gclient help sync` itself, and it does it at the one moment when
@@ -565,6 +550,11 @@ jobs:
           # is not something this repository can promise, so a reduction that
           # breaks the sync is dropped rather than aborting the experiment -
           # and which shape actually worked is recorded in the evidence.
+          #
+          # Honest limit: only the first attempt is realistically affordable.
+          # A constrained sync of this revision takes the better part of an
+          # hour on four cores, so attempts two and three exist as a recorded
+          # fallback rather than as a plan.
           $attempts = @(
             @{ label = 'constrained: --no-history --target-os win --small-checkout'; args = @('--no-history', '--target-os', 'win', '--small-checkout') }
             @{ label = 'constrained without the shallow clone: --target-os win --small-checkout'; args = @('--target-os', 'win', '--small-checkout') }
@@ -581,7 +571,13 @@ jobs:
               # not reachable from here, so this is how the attempt that is
               # running becomes visible at all.
               Write-Host "::notice title=Sync attempt $($i + 1) of $($attempts.Count)::$($attempt.label)"
-              node tools/chromium/sync.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --low-resource-experiment $attempt.args 2>&1 | Tee-Object -FilePath $log
+              # --no-hooks: the hooks are the fragile part. One of them
+              # downloads the pinned Visual Studio toolchain and Windows SDK,
+              # and on a hosted runner that download is opaque, not resumable
+              # and - as run 5 proved - able to fail after an hour of a
+              # perfectly good sync. It gets its own step, below, where a
+              # failure costs minutes instead of the whole run.
+              node tools/chromium/sync.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --low-resource-experiment --no-hooks $attempt.args 2>&1 | Tee-Object -FilePath $log
               $syncExit = $LASTEXITCODE
               if ($syncExit -eq 0) {
                 $syncShape = $attempt.label
@@ -628,9 +624,73 @@ jobs:
             ("{`"volume`":`"$env:AURELIA_BUILD_VOLUME`",`"freeGb`":$afterSync}`n"))
           Add-Content $env:GITHUB_STEP_SUMMARY "- sync finished at $head; free disk on $env:AURELIA_BUILD_VOLUME : $afterSync GB"
 
+      - name: Install the pinned toolchain and run the remaining DEPS hooks
+        id: hooks
+        if: steps.sync.outcome == 'success'
+        shell: pwsh
+        timeout-minutes: 90
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          New-Item -ItemType Directory -Force -Path 'artifacts/logs' | Out-Null
+          . .\tools\ci\publish-log-tail.ps1
+          $env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
+
+          # Chromium builds against an exact Visual Studio toolchain and an
+          # exact Windows SDK (build/vs_toolchain.py at the pinned revision:
+          # TOOLCHAIN_HASH 3bfcb536c8, SDK_VERSION 10.0.28000.0). Neither is
+          # on the runner image, which carries SDK 10.0.26100.0, so the DEPS
+          # hook downloads them into depot_tools/win_toolchain/vs_files.
+          #
+          # Run 5 let this hook ride inside the sync. It failed after an hour
+          # of an otherwise clean checkout, and because the sync had already
+          # spent the step's budget there was nothing left to retry with. It
+          # is its own step now: three attempts, each of them cheap, each of
+          # them publishing the tail of its log.
+          $hookShape = 'failed'
+          $hookExit = $null
+          $log = 'artifacts/logs/hooks-0.log'
+          # gclient reads .gclient from the current directory, so the hooks
+          # have to run in the checkout, not in the workspace.
+          Push-Location $env:AURELIA_CHROMIUM_DEST
+          try {
+            for ($i = 0; $i -lt 3; $i += 1) {
+              $log = "artifacts/logs/hooks-$i.log"
+              Write-Host "::notice title=DEPS hooks attempt $($i + 1) of 3::gclient runhooks in $env:AURELIA_CHROMIUM_DEST"
+              & gclient runhooks 2>&1 | Tee-Object -FilePath (Join-Path $env:GITHUB_WORKSPACE $log)
+              $hookExit = $LASTEXITCODE
+              if ($hookExit -eq 0) {
+                $hookShape = "gclient runhooks (attempt $($i + 1))"
+                break
+              }
+              Publish-LogTail -Path (Join-Path $env:GITHUB_WORKSPACE $log) -Title "DEPS hooks attempt $($i + 1) failed"
+            }
+          } catch {
+            # Still inside the checkout here, so the log needs its full path.
+            Publish-LogTail -Path (Join-Path $env:GITHUB_WORKSPACE $log) -Title 'DEPS hooks aborted'
+            $text = ($_.Exception.Message -replace '%', '%25' -replace "`r", '' -replace "`n", ' ')
+            if ($text.Length -gt 480) { $text = $text.Substring(0, 480) }
+            Write-Host "::error title=DEPS hooks aborted::$text"
+            throw
+          } finally {
+            Pop-Location
+            [System.IO.File]::WriteAllText(
+              (Join-Path (Get-Location) 'artifacts/hosted-constrained-hooks.json'),
+              ("{`"shape`":`"$hookShape`",`"exitCode`":$(if ($hookExit -eq $null) { 'null' } else { $hookExit })}`n"))
+          }
+          if ($hookExit -ne 0) { throw "the DEPS hooks failed with exit code $hookExit" }
+          Add-Content $env:GITHUB_STEP_SUMMARY "- toolchain and hooks: $hookShape"
+          $toolchainJson = Join-Path $env:AURELIA_CHROMIUM_DEST 'src/build/win_toolchain.json'
+          if (Test-Path $toolchainJson) {
+            Copy-Item $toolchainJson 'artifacts/'
+            Add-Content $env:GITHUB_STEP_SUMMARY "- win_toolchain.json: ``$(Get-Content $toolchainJson -Raw -replace '\s+', ' ')``"
+          } else {
+            Write-Host '::error title=DEPS hooks::gclient runhooks succeeded but src/build/win_toolchain.json is absent; gn gen cannot resolve the toolchain'
+          }
+
       - name: Verify the patch set against the pristine checkout
         id: verify-patches
-        if: steps.sync.outcome == 'success'
+        if: steps.hooks.outcome == 'success'
         shell: pwsh
         timeout-minutes: 20
         run: |
@@ -837,6 +897,21 @@ jobs:
             Add-Content $env:GITHUB_STEP_SUMMARY "  - $($last.edgesDone) edge(s) completed in $($result.elapsedMin) min at -j $env:EXPERIMENT_JOBS; free disk $($last.freeDiskGb) GB, free RAM $($last.freeRamGb) GB"
           }
 
+      - name: Publish the compile log tail
+        if: steps.compile.outcome == 'failure'
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          . .\tools\ci\publish-log-tail.ps1
+          # The compile is the least predictable stage and the most expensive
+          # to repeat, so whatever it last said is worth the annotation.
+          foreach ($name in @('compile-driver.err.log', 'compile.log', 'autoninja.log', 'compile-driver.out.log')) {
+            $path = Join-Path 'artifacts/logs' $name
+            if (Test-Path $path) {
+              Publish-LogTail -Path $path -Title "compile: $name"
+            }
+          }
+
       - name: Stage, smoke test, record and package the browser
         id: validate
         if: steps.compile.outputs.compiled == 'true'
@@ -889,6 +964,7 @@ jobs:
           $graph     = Read-JsonFile 'artifacts/hosted-constrained-graph.json'
           $compile   = Read-JsonFile 'artifacts/hosted-constrained-compile.json'
           $syncInfo  = Read-JsonFile 'artifacts/hosted-constrained-sync.json'
+          $hooksInfo = Read-JsonFile 'artifacts/hosted-constrained-hooks.json'
           $capabilities = Read-JsonFile 'artifacts/runner-capabilities.json'
 
           # --- the last stage that actually finished -------------------------
@@ -897,6 +973,7 @@ jobs:
             'apply the experiment floor' = (($verdict -ne $null) -and ($verdict.ok -eq $true))
             'reclaim disk'             = ($reclaim -ne $null)
             'gclient sync'             = ((Test-Path (Join-Path $src '.git')) -and ($afterSync -ne $null))
+            'toolchain + hooks'        = ((Test-Path (Join-Path $src 'build/win_toolchain.json')) -and ($hooksInfo -ne $null) -and ($hooksInfo.exitCode -eq 0))
             'verify patches'           = (Test-Path 'artifacts/logs/verify-patches.log')
             'install overlay + patches' = ((Test-Path (Join-Path $src 'chrome/browser/ui/webui/aurelia/aurelia_ui.cc')) -and (Test-Path (Join-Path $src 'chrome/browser/resources/aurelia/aurelia.html')))
             'gn gen'                   = (Test-Path (Join-Path $src 'out/Release/build.ninja'))
@@ -917,6 +994,9 @@ jobs:
             'artifacts/logs/compile-driver.out.log',
             'artifacts/logs/autoninja.log',
             'artifacts/logs/gn.log',
+            'artifacts/logs/hooks-2.log',
+            'artifacts/logs/hooks-1.log',
+            'artifacts/logs/hooks-0.log',
             'artifacts/logs/sync-2.log',
             'artifacts/logs/sync-1.log',
             'artifacts/logs/sync-0.log',
@@ -970,6 +1050,14 @@ jobs:
               $classification = 'UNKNOWN'
             }
             $classificationReason = if ($firstError -eq $null) { 'the sync did not finish' } else { $firstError.line }
+          } elseif ($stages['toolchain + hooks'] -eq $false) {
+            # Chromium pins an exact Visual Studio toolchain and Windows SDK
+            # that no hosted image carries, so this stage is the one place a
+            # build can die on something the repository does not own.
+            if ($firstError -ne $null -and $firstError.line -match '(?i)(network|fetch|curl|TLS|resolve|timed out|404|403|connection)') { $classification = 'NETWORK' }
+            elseif ($firstError -ne $null -and $firstError.line -match '(?i)(space|disk|no space)') { $classification = 'RESOURCE LIMIT' }
+            else { $classification = 'TOOLCHAIN' }
+            $classificationReason = if ($firstError -eq $null) { 'gclient runhooks did not finish: the pinned toolchain and Windows SDK were never installed' } else { $firstError.line }
           } elseif ($stages['verify patches'] -eq $false) { $classification = 'PATCH'; $classificationReason = 'the patch set did not verify against the pinned revision' }
           elseif ($stages['install overlay + patches'] -eq $false) { $classification = 'PATCH'; $classificationReason = 'the overlay or patch series did not apply' }
           elseif ($stages['gn gen'] -eq $false) {
@@ -1048,6 +1136,7 @@ jobs:
               afterCompileGb       = $(if ($compile -ne $null -and $compile.lastSample -ne $null) { $compile.lastSample.freeDiskGb } else { $null })
             }
             syncShape             = $(if ($syncInfo -ne $null) { $syncInfo.shape } else { $null })
+            hookShape             = $(if ($hooksInfo -ne $null) { $hooksInfo.shape } else { $null })
             revisions             = [ordered]@{
               aurelia              = $env:GITHUB_SHA
               chromium             = $chromiumSha
@@ -1096,6 +1185,9 @@ jobs:
           }
           if ($syncInfo -ne $null) {
             Write-Host "::notice title=Sync shape::$($syncInfo.shape)"
+          }
+          if ($hooksInfo -ne $null) {
+            Write-Host "::notice title=Hook shape::$($hooksInfo.shape)"
           }
           @(
             '',
