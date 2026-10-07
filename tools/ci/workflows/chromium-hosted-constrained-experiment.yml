@@ -42,9 +42,17 @@
 name: Chromium hosted constrained experiment
 
 on:
-  # Manual only. This burns hosted-runner minutes and Actions quota, so it
-  # starts when a maintainer dispatches it - never on push, never on a
-  # schedule.
+  # TEMPORARY PUSH TRIGGER - removed again as soon as the run below has
+  # started. This workflow is meant to be manual-only: it burns hosted-runner
+  # minutes and Actions quota, and must never spend them on its own. The
+  # automation credential cannot create workflow_dispatch events (the API
+  # answers HTTP 403 - see docs/CI-SECURITY.md), so the single controlled run
+  # is started the way this project already did once: by pushing a file whose
+  # only purpose is to trigger it.
+  push:
+    branches: [arena/11911355-browser]
+    paths: ['tools/ci/hosted-experiment-trigger.txt']
+  # Manual only. This is how the owner runs it again.
   workflow_dispatch:
     inputs:
       jobs:
@@ -909,13 +917,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: hosted-constrained-experiment-${{ github.run_id }}
-          path: |
-            artifacts/**/*.json
-            artifacts/**/*.txt
-            artifacts/**/*.log
-            artifacts/**/*.gn
-            artifacts/**/*.zip
-            artifacts/**/*.sha256
+          # The whole report directory: nested logs are part of the evidence,
+          # and a pattern that missed one would lose the run's only record.
+          path: artifacts/
           if-no-files-found: warn
           retention-days: 14
 
