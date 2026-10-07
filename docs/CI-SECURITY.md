@@ -32,6 +32,13 @@ threats, the controls, and what is deliberately not automated.
 
 ## Workflows
 
+> **Publishing status:** the workflow definitions described below are prepared
+> but not yet committed, because the GitHub credential used to push this branch
+> lacks the `workflows` permission. Their tooling (`tools/ci/**`) _is_ committed
+> and tested. Add the definitions once the permission is available; until then
+> nothing runs on GitHub and none of the checks in this document are enforced by
+> CI — they are only enforced locally via `node tools/ci/fast-checks.mjs`.
+
 | Workflow                    | Trigger                    | Runner          | Permissions                       | Purpose                                                                                          |
 | --------------------------- | -------------------------- | --------------- | --------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `ci-fast.yml`               | push, pull_request, manual | GitHub-hosted   | `contents: read`                  | Format, lint, typecheck, unit tests, repository checks, online patch verification, update report |
