@@ -21,12 +21,19 @@ actually true today.
 A browser feature may never be called complete at SCAFFOLDED or IMPLEMENTED.
 The distinction exists because "the code is written" is not "the browser works".
 
+For the build itself the ladder is finer and is never collapsed: the patch
+applying to the pinned tree is INTEGRATION SOURCE VERIFIED, a successful
+`gn gen` is CONFIGURATION VERIFIED, a successful `autoninja` is COMPILED, a
+browser process that launches is RUNTIME INTEGRATED, a passing smoke test is
+TESTED, and only a physical supported Windows machine can make it VERIFIED
+([BUILDING-CHROMIUM.md](BUILDING-CHROMIUM.md)).
+
 ## Current state (2026-10-07)
 
 | Area                                      | State       | Evidence / gap                                                                                                                                            |
 | ----------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Repository audit                          | TESTED      | [REPOSITORY-AUDIT.md](REPOSITORY-AUDIT.md)                                                                                                                |
-| Chromium pin (exact revision)             | TESTED      | `config/chromium_version.json` validated by unit tests; digests recorded                                                                                  |
+| Chromium pin (exact revision)             | TESTED      | `155.0.8059.40` / `cfaadc5a…` confirmed stable via chromiumdash + `chrome/VERSION` at the revision; digests recorded; `depot_tools` pinned to `1e43ae34…` |
 | Patch/overlay mechanism                   | TESTED      | `verify-patches --online` fetches the pinned pre-images, applies the patch, and matches post-image digests                                                |
 | GN wiring strategy                        | SCAFFOLDED  | follows upstream `webui_gallery`; **not compiled**                                                                                                        |
 | Reproducible checkout (`sync.mjs`)        | IMPLEMENTED | never executed against a real Chromium checkout                                                                                                           |
@@ -64,7 +71,6 @@ The distinction exists because "the code is written" is not "the browser works".
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | No Chromium build has ever been run for this project                      | Integration cannot be claimed                                                                                                        | Self-hosted heavy build workflow + smoke test are ready to produce evidence                                                                                                                                   |
 | Building requires a machine with ≥ 8 cores / 32 GB RAM / 150 GB free disk | Cannot build in small sandboxes or hosted CI                                                                                         | Lightweight upstream verification instead; documented requirements                                                                                                                                            |
-| `depot_tools` revision unresolved                                         | Toolchain pin incomplete                                                                                                             | `sync.mjs --record-depot-tools <sha>` on the builder; tracked as an issue                                                                                                                                     |
 | No code-signing certificate                                               | Windows builds are unsigned and will prompt SmartScreen                                                                              | Unsigned development builds are labelled; no bypass is attempted                                                                                                                                              |
 | No Apple Developer account                                                | macOS cannot be notarised                                                                                                            | macOS is non-blocking for the Windows-first plan                                                                                                                                                              |
 | Supabase terms not yet verified for the free tier                         | Sync backend choice is conditional                                                                                                   | Provider is `none`; abstraction designed to keep options open                                                                                                                                                 |
