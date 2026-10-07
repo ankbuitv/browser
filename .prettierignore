@@ -1,0 +1,17 @@
+node_modules/
+chromium/
+coverage/
+out/
+dist/
+artifacts/
+package-lock.json
+*.tsbuildinfo
+docs/BUILD-OUTPUT.md
+
+# Generated files are owned by their generators, not by the formatter.
+# CI verifies them with `generate-tokens.mjs --check` / `generate-version`.
+packages/design-tokens/src/tokens.generated.ts
+packages/ui-lab/src/tokens.generated.css
+chromium/overlay/chrome/browser/resources/aurelia/design_tokens.css
+chromium/overlay/chrome/browser/ui/webui/aurelia/aurelia_version.h
+chromium/verification/pre-images.json

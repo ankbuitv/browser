@@ -1,0 +1,66 @@
+# Node / TypeScript
+node_modules/
+*.tsbuildinfo
+.vite/
+coverage/
+
+# Aurelia build outputs
+out/
+dist/
+build/
+artifacts/
+
+# ---------------------------------------------------------------
+# Chromium source tree
+# ---------------------------------------------------------------
+# Chromium is NEVER vendored into this repository. `tools/chromium/sync.mjs`
+# checks out a pinned revision into a directory outside of Git, or into
+# `chromium/` which is ignored below. See docs/CHROMIUM-UPSTREAM.md.
+chromium/
+chromium-src/
+*.crx
+depot_tools/
+
+# Patch application scratch space (used by tools/chromium/patch.mjs)
+.patch-work/
+
+# ---------------------------------------------------------------------------
+# Secrets: never commit anything below. These patterns are a safety net only;
+# they do not replace review. See SECURITY.md and .github/workflows/ci-fast.yml.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.key
+!**/testdata/**/*.key
+*.cer
+*.crt
+!**/testdata/**/*.crt
+secrets/
+*.secrets.json
+
+# Windows / installer artifacts
+*.msi
+*.msix
+*.nupkg
+*.exe
+!tools/**/*.exe
+*.dll
+!tools/**/*.dll
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*~
+
+# Logs
+*.log
+npm-debug.log*
