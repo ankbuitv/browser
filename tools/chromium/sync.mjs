@@ -29,13 +29,29 @@ import path from 'node:path';
 import { REPO_ROOT, loadConfig, CONFIG_PATH } from './lib/config.mjs';
 import { installOverlay } from './install-overlay.mjs';
 import { run } from './lib/upstream.mjs';
+import { spawnCommand } from './lib/exec.mjs';
 import { isMainModule } from '../lib/entry.mjs';
+import { EXPERIMENT_DISK, LOW_RESOURCE_MODE } from './low-resource.mjs';
 
 const CHROMIUM_SOURCE_URL =
   'https://chromium.googlesource.com/chromium/src.git';
 
 /** Minimum free space in GB before we even try: source + deps + build output. */
 export const MINIMUM_FREE_DISK_GB = 150;
+
+/**
+ * Disk floor for LOW_RESOURCE_EXPERIMENT runs.
+ *
+ * The documented builder minimum (150 GB) is never lowered: this is a *second*
+ * floor that only applies when the caller passes --low-resource-experiment, and
+ * it comes from the same policy module the bootstrap script uses
+ * (tools/chromium/low-resource.mjs) so the numbers change in one place only.
+ */
+export function diskFloorGb({ lowResourceExperiment = false } = {}) {
+  return lowResourceExperiment
+    ? EXPERIMENT_DISK.hardMinimumFreeGb
+    : MINIMUM_FREE_DISK_GB;
+}
 
 /**
  * Free space in GB, cross-platform.
@@ -72,9 +88,10 @@ export function gclientExecutable(depotTools) {
   );
 }
 
-export function preflight({ dest, config }) {
+export function preflight({ dest, config, lowResourceExperiment = false }) {
   const reports = [];
   const problems = [];
+  const floorGb = diskFloorGb({ lowResourceExperiment });
 
   let probePath = dest;
   while (!existsSync(probePath) && probePath !== path.dirname(probePath)) {
@@ -82,13 +99,21 @@ export function preflight({ dest, config }) {
   }
   try {
     const freeGb = freeDiskGb(probePath);
-    const ok = freeGb >= MINIMUM_FREE_DISK_GB;
-    reports.push(
-      `free disk at ${probePath}: ${freeGb.toFixed(1)} GB (need >= ${MINIMUM_FREE_DISK_GB} GB)`,
-    );
+    const ok = freeGb >= floorGb;
+    if (lowResourceExperiment) {
+      reports.push(
+        `free disk at ${probePath}: ${freeGb.toFixed(1)} GB (${LOW_RESOURCE_MODE} floor ${floorGb} GB; about ${EXPERIMENT_DISK.estimatedFootprintGb} GB used, ${EXPERIMENT_DISK.safetyReserveGb} GB reserve never filled)`,
+      );
+    } else {
+      reports.push(
+        `free disk at ${probePath}: ${freeGb.toFixed(1)} GB (need >= ${floorGb} GB)`,
+      );
+    }
     if (!ok) {
       problems.push(
-        `insufficient free disk: ${freeGb.toFixed(1)} GB available, ${MINIMUM_FREE_DISK_GB} GB required`,
+        lowResourceExperiment
+          ? `insufficient free disk: ${freeGb.toFixed(1)} GB available, ${floorGb} GB required for ${LOW_RESOURCE_MODE} (about ${EXPERIMENT_DISK.estimatedFootprintGb} GB footprint plus a ${EXPERIMENT_DISK.safetyReserveGb} GB reserve)`
+          : `insufficient free disk: ${freeGb.toFixed(1)} GB available, ${floorGb} GB required`,
       );
     }
   } catch (error) {
@@ -160,10 +185,11 @@ export function syncCheckout({
   dest,
   install = false,
   withRefs = false,
+  lowResourceExperiment = false,
   config,
   log = console.log,
 }) {
-  const preflightResult = preflight({ dest, config });
+  const preflightResult = preflight({ dest, config, lowResourceExperiment });
   for (const report of preflightResult.reports) {
     log(`preflight: ${report}`);
   }
@@ -199,12 +225,20 @@ export function syncCheckout({
   if (withRefs) {
     syncArgs.push('--with_branch_heads', '--with_tags');
   }
-  run(
-    gclientExecutable(depotTools),
-    syncArgs,
-    // Windows cannot execute a .bat file without a shell since Node 18.20.
-    { cwd: dest, env, shell: process.platform === 'win32' },
+  // Streamed, not captured: a sync takes tens of minutes and writes progress
+  // the operator wants to see. On Windows this goes through cmd.exe
+  // (lib/exec.mjs) because `gclient` is `gclient.bat` there.
+  log(`$ gclient ${syncArgs.join(' ')}`);
+  const sync = spawnCommand(
+    { file: gclientExecutable(depotTools), args: syncArgs, cwd: dest },
+    { env },
   );
+  if (sync.error !== undefined) {
+    throw new Error(`gclient could not be started: ${sync.error.message}`);
+  }
+  if (sync.status !== 0) {
+    throw new Error(`gclient sync exited with code ${sync.status}`);
+  }
 
   const head = run('git', ['-C', srcDir, 'rev-parse', 'HEAD']).trim();
   if (head !== config.chromium.revision) {
@@ -260,7 +294,11 @@ function main(argv) {
   }
 
   if (argv.includes('--check-only')) {
-    const preflightResult = preflight({ dest, config });
+    const preflightResult = preflight({
+      dest,
+      config,
+      lowResourceExperiment: argv.includes('--low-resource-experiment'),
+    });
     for (const report of preflightResult.reports) {
       console.log(`preflight: ${report}`);
     }
@@ -274,6 +312,7 @@ function main(argv) {
     dest,
     install: argv.includes('--install'),
     withRefs: argv.includes('--with-refs'),
+    lowResourceExperiment: argv.includes('--low-resource-experiment'),
     config,
   });
   console.log(`ready: ${result.srcDir} at ${result.head}`);

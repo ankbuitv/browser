@@ -1,0 +1,166 @@
+#!/usr/bin/env node
+/**
+ * Child-process invocation that works the same way on Windows and everywhere
+ * else.
+ *
+ * The problem this solves: on Windows the tools this repository drives are not
+ * executables but batch files (`gn.bat`, `autoninja.bat`, `gclient.bat`, all
+ * shipped by depot_tools). Since Node 18.20 a batch file cannot be spawned
+ * directly - `spawnSync` without a shell fails - and `shell: true` combined with
+ * an argument array lets Node join the arguments without quoting, which breaks
+ * the moment a path contains a space.
+ *
+ * So on Windows these commands are executed the documented way: build one
+ * command line, quote every argument for the Windows command-line parser, and
+ * hand the whole line to `cmd.exe /d /s /c "<line>"` with
+ * `windowsVerbatimArguments` so Node does not add a second layer of quoting.
+ * `cmd.exe` also resolves `gn` to `gn.bat` through `PATHEXT`, which is exactly
+ * how a developer shell finds them.
+ *
+ * On POSIX nothing changes: the executable and argument array are passed
+ * straight to `spawnSync`.
+ */
+import { spawnSync } from 'node:child_process';
+
+/** Arguments that are safe to pass through cmd.exe without quoting. */
+const SAFE_WINDOWS_ARGUMENT = /^[A-Za-z0-9_@+=:,.\\/-]+$/;
+
+/**
+ * Quote one argument for a Windows command line so that both the CRT parser of
+ * the target program and `cmd.exe` see the intended value: embedded quotes are
+ * backslash-escaped and trailing backslashes are doubled so they cannot escape
+ * the closing quote.
+ */
+export function quoteWindowsArgument(argument) {
+  const text = String(argument);
+  if (text === '') {
+    return '""';
+  }
+  if (SAFE_WINDOWS_ARGUMENT.test(text)) {
+    return text;
+  }
+  const escaped = text
+    .replace(/(\\*)"/g, '$1$1\\"')
+    .replace(/(\\+)$/, '$1$1');
+  return `"${escaped}"`;
+}
+
+/** One command line for cmd.exe: file plus quoted arguments. */
+export function windowsCommandLine(file, args = []) {
+  return [file, ...args].map(quoteWindowsArgument).join(' ');
+}
+
+/**
+ * Decide how a command should be spawned, without spawning it.
+ *
+ * Exported so the platform behaviour can be unit-tested on a Linux runner: the
+ * Windows branch is what the owner's machine uses, and it must not be the part
+ * nobody ever looked at.
+ *
+ * @returns {{file: string, args: string[], options: object, commandLine: string}}
+ */
+export function resolveSpawn(
+  command,
+  { platform = process.platform, env = process.env } = {},
+) {
+  const base = {
+    cwd: command.cwd,
+    stdio: command.stdio ?? 'inherit',
+    env,
+    ...(command.maxBuffer === undefined
+      ? {}
+      : { maxBuffer: command.maxBuffer }),
+  };
+  if (platform !== 'win32') {
+    return {
+      file: command.file,
+      args: command.args ?? [],
+      options: { ...base, shell: false },
+      commandLine: [command.file, ...(command.args ?? [])].join(' '),
+    };
+  }
+  const commandLine = windowsCommandLine(command.file, command.args ?? []);
+  return {
+    file: env.ComSpec ?? env.COMSPEC ?? 'cmd.exe',
+    args: ['/d', '/s', '/c', `"${commandLine}"`],
+    options: { ...base, windowsVerbatimArguments: true },
+    commandLine,
+  };
+}
+
+/**
+ * Run a command ({file, args, cwd, stdio}) to completion.
+ *
+ * @returns {{status: number|null, stdout: string|null, stderr: string|null, error: Error|undefined, commandLine: string}}
+ */
+export function spawnCommand(command, options = {}) {
+  const resolved = resolveSpawn(command, options);
+  return {
+    ...spawnSync(resolved.file, resolved.args, resolved.options),
+    commandLine: resolved.commandLine,
+  };
+}
+
+/**
+ * Run a command and return its standard output, throwing a readable error on a
+ * non-zero exit - the shape the upstream file fetcher needs.
+ */
+export function captureCommand(command, options = {}) {
+  const result = spawnCommand(
+    { ...command, stdio: ['ignore', 'pipe', 'pipe'] },
+    options,
+  );
+  const stdout =
+    typeof result.stdout === 'string'
+      ? result.stdout
+      : (result.stdout?.toString('utf8') ?? '');
+  const stderr =
+    typeof result.stderr === 'string'
+      ? result.stderr
+      : (result.stderr?.toString('utf8') ?? '');
+  if (result.error !== undefined) {
+    throw new Error(
+      `command failed: ${result.commandLine}\n${stderr.trim() || result.error.message}`,
+    );
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `command failed: ${result.commandLine}\n${stderr.trim() || stdout.trim() || `exit code ${result.status}`}`,
+    );
+  }
+  return stdout;
+}
+
+/**
+ * Run a command and return its standard output as raw bytes.
+ *
+ * Used where the caller needs the exact bytes (upstream files fetched from a
+ * checkout), not a decoded string.
+ *
+ * @returns {Buffer}
+ */
+export function captureCommandBuffer(command, options = {}) {
+  const result = spawnCommand(
+    { ...command, stdio: ['ignore', 'pipe', 'pipe'] },
+    options,
+  );
+  const stderr =
+    typeof result.stderr === 'string'
+      ? result.stderr
+      : (result.stderr?.toString('utf8') ?? '');
+  if (result.error !== undefined) {
+    throw new Error(
+      `command failed: ${result.commandLine}\n${stderr.trim() || result.error.message}`,
+    );
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `command failed: ${result.commandLine}\n${stderr.trim() || `exit code ${result.status}`}`,
+    );
+  }
+  return Buffer.isBuffer(result.stdout)
+    ? result.stdout
+    : Buffer.from(result.stdout ?? '');
+}
+
+export { spawnSync };

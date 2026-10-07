@@ -10,32 +10,27 @@
  * Both verify a SHA-256 digest of the fetched bytes, so a transport problem can
  * never be mistaken for an upstream change.
  */
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { captureCommand, captureCommandBuffer } from './exec.mjs';
+
 export function sha256(buffer) {
   return createHash('sha256').update(buffer).digest('hex');
 }
 
-/** Run a command and return stdout, throwing a readable error on failure. */
+/**
+ * Run a command and return stdout, throwing a readable error on failure.
+ *
+ * Windows goes through cmd.exe (see lib/exec.mjs) so that `gclient.bat`,
+ * `gn.bat` and `autoninja.bat` from depot_tools are found through PATHEXT - and
+ * so that a path containing a space survives the trip.
+ */
 export function run(command, args, options = {}) {
-  try {
-    return execFileSync(command, args, {
-      encoding: 'utf8',
-      maxBuffer: 256 * 1024 * 1024,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      ...options,
-    });
-  } catch (error) {
-    const stderr = typeof error.stderr === 'string' ? error.stderr.trim() : '';
-    const stdout = typeof error.stdout === 'string' ? error.stdout.trim() : '';
-    throw new Error(
-      `command failed: ${command} ${args.join(' ')}\n${stderr || stdout || error.message}`,
-    );
-  }
+  const { cwd, env } = options;
+  return captureCommand({ file: command, args, cwd, env });
 }
 
 function ghAvailable() {
@@ -71,7 +66,9 @@ export function fetchUpstreamFileViaApi(slug, revision, filePath) {
  * @returns {Buffer}
  */
 export function fetchUpstreamFileViaGit(checkoutPath, revision, filePath) {
-  return execFileSync('git', ['-C', checkoutPath, 'show', `${revision}:${filePath}`], {
+  return captureCommandBuffer({
+    file: 'git',
+    args: ['-C', checkoutPath, 'show', `${revision}:${filePath}`],
     maxBuffer: 256 * 1024 * 1024,
   });
 }

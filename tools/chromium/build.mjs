@@ -7,26 +7,38 @@
  * in the same order, by calling the same tools. It exists for two reasons:
  *
  *   1. a provisioned builder needs one command, not a checklist;
- *   2. the pipeline stays runnable without GitHub Actions - which matters while
- *      the workflow definitions cannot be deployed (issue #5).
+ *   2. the pipeline stays runnable without GitHub Actions - and stays the
+ *      *same* pipeline: the CI workflow and this driver call the same tools in
+ *      the same order.
  *
  * Nothing here weakens the browser: no sandbox flag, no site-isolation change,
  * no security-relevant GN argument (the allowlist in gn-args.mjs rejects those
  * anyway). If the smoke test cannot run without weakening the sandbox, the run
  * is marked as not equivalent to product-runtime verification instead.
  *
+ * Two profiles exist:
+ *   dev (default)   config/gn/win-x64-dev.gn              - the documented dev build
+ *   low-resource    config/gn/win-x64-low-resource.gn     - LOW_RESOURCE_EXPERIMENT:
+ *                   symbol_level 0, one link at a time, plus `-j N` compile
+ *                   jobs computed from measured RAM/CPU (tools/chromium/low-resource.mjs).
+ *                   It changes build cost only, never browser behaviour.
+ *
  * Usage:
- *   node tools/chromium/build.mjs --dest C:\\chromium            # full pipeline
+ *   node tools/chromium/build.mjs --dest C:\\chromium                        # full pipeline
  *   node tools/chromium/build.mjs --dest /srv/chromium --skip-sync
  *   node tools/chromium/build.mjs --dest /srv/chromium --dry-run
+ *   node tools/chromium/build.mjs --dest D:\\aeb --profile low-resource --jobs 2
+ *   node tools/chromium/build.mjs --dest D:\\aeb --only sync                 # one stage
+ *   node tools/chromium/build.mjs --dest D:\\aeb --only stage,smoke-test,record
+ *   node tools/chromium/build.mjs --dest D:\\aeb --log-dir artifacts/local-build
  *
  * Exit codes: 0 success, 1 failure, 2 refused (preflight or verification).
  */
-import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMainModule } from '../lib/entry.mjs';
+import { captureCommand, spawnCommand } from './lib/exec.mjs';
 
 export const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -90,7 +102,29 @@ export const BUILD_STAGES = [
     title: 'record: smoke-test result in the build manifest',
     description: 'the manifest may only claim TESTED if the smoke test actually passed',
   },
+  {
+    id: 'package',
+    title: 'package: unsigned development artifact (zip + sha256)',
+    description: 'the complete staged directory, never only chrome.exe; signed=false',
+  },
 ];
+
+/** The low-resource profile's reviewed GN file. */
+export const GN_ARGS_FILES = {
+  dev: 'win-x64-dev.gn',
+  'low-resource': 'win-x64-low-resource.gn',
+};
+
+/** Log file name per stage, used with --log-dir. */
+const LOG_NAMES = {
+  'gn-gen': 'gn.log',
+  compile: 'autoninja.log',
+  sync: 'sync.log',
+  'verify-patches': 'verify-patches.log',
+  'install-overlay': 'install-overlay.log',
+  'smoke-test': 'smoke-test.log',
+  package: 'package.log',
+};
 
 /**
  * The command line for each stage. Kept as data so the plan can be printed
@@ -107,7 +141,25 @@ export function buildPlan({
   aureliaRevision = '<aurelia-revision>',
   artifactPlatform = 'windows',
   skipSync = false,
+  profile = 'dev',
+  jobs = null,
+  only = null,
 } = {}) {
+  const lowResource = profile === 'low-resource';
+  if (GN_ARGS_FILES[profile] === undefined) {
+    throw new Error(
+      `unknown profile "${profile}"; expected one of: ${Object.keys(GN_ARGS_FILES).join(', ')}`,
+    );
+  }
+  if (only !== null) {
+    const known = BUILD_STAGES.map((stage) => stage.id);
+    const unknown = only.filter((id) => !known.includes(id));
+    if (unknown.length > 0) {
+      throw new Error(
+        `unknown stage(s) in --only: ${unknown.join(', ')}; known stages: ${known.join(', ')}`,
+      );
+    }
+  }
   const src = path.join(dest ?? '<dest>', 'src');
   const checkout = checkoutDir ?? src;
   const out = outDir ?? path.join(checkout, 'out', 'Release');
@@ -116,13 +168,25 @@ export function buildPlan({
   const stage = stageDir ?? path.join(dest ?? '<dest>', 'artifacts', 'staged');
   const argsFile = path.join(out, 'args.gn');
   const reportFile = path.join(dest ?? '<dest>', 'artifacts', 'smoke-test.json');
-  const gnArgsFile = path.join(repoRoot, 'config', 'gn', 'win-x64-dev.gn');
+  // The low-resource profile must never run unbounded ninja jobs: when no job
+  // count is supplied (bootstrap-build.ps1 supplies the measured one), fall back
+  // to a single job - slow, but safe on every machine.
+  const effectiveJobs =
+    Number.isInteger(jobs) && jobs > 0 ? jobs : lowResource ? 1 : null;
+
+  const gnArgsFile = path.join(repoRoot, 'config', 'gn', GN_ARGS_FILES[profile]);
 
   const stageCommands = {
     preflight: [
       {
         file: node,
-        args: [tool('sync.mjs'), '--dest', dest ?? '<dest>', '--check-only'],
+        args: [
+          tool('sync.mjs'),
+          '--dest',
+          dest ?? '<dest>',
+          '--check-only',
+          ...(lowResource ? ['--low-resource-experiment'] : []),
+        ],
         cwd: repoRoot,
         description: 'destination volume and toolchain preflight',
       },
@@ -130,7 +194,12 @@ export function buildPlan({
     sync: [
       {
         file: node,
-        args: [tool('sync.mjs'), '--dest', dest ?? '<dest>'],
+        args: [
+          tool('sync.mjs'),
+          '--dest',
+          dest ?? '<dest>',
+          ...(lowResource ? ['--low-resource-experiment'] : []),
+        ],
         cwd: repoRoot,
         description: 'pinned checkout',
       },
@@ -184,9 +253,32 @@ export function buildPlan({
     compile: [
       {
         file: 'autoninja',
-        args: ['-C', path.relative(checkout, out), 'chrome'],
+        // `-j N` is a ninja flag autoninja passes through; the low-resource
+        // profile computes N from measured RAM and logical cores
+        // (tools/chromium/low-resource.mjs) so an 8 GB machine runs two
+        // compilers, not one per core.
+        args: [
+          '-C',
+          path.relative(checkout, out),
+          ...(effectiveJobs === null ? [] : ['-j', String(effectiveJobs)]),
+          'chrome',
+        ],
         cwd: checkout,
         description: 'build the browser',
+      },
+    ],
+    package: [
+      {
+        file: node,
+        args: [
+          tool('package.mjs'),
+          '--stage',
+          stage,
+          '--dest',
+          path.join(dest ?? '<dest>', 'artifacts'),
+        ],
+        cwd: repoRoot,
+        description: 'zip + sha256 of the staged runtime directory',
       },
     ],
     stage: [
@@ -237,22 +329,42 @@ export function buildPlan({
     ],
   };
 
-  return BUILD_STAGES.filter((s) => !(skipSync && s.id === 'sync')).map(
-    (stageInfo) => ({
+  return BUILD_STAGES.filter((stage) => !(skipSync && stage.id === 'sync'))
+    .filter((stage) => only === null || only.includes(stage.id))
+    .map((stageInfo) => ({
       ...stageInfo,
-      commands: stageCommands[stageInfo.id],
-    }),
-  );
+      commands: stageCommands[stageInfo.id].map((command) => ({
+        ...command,
+        logName: LOG_NAMES[stageInfo.id] ?? `${stageInfo.id}.log`,
+      })),
+    }));
 }
 
-function runCommand(command, log) {
-  log(`    $ ${command.file} ${command.args.join(' ')}`);
-  const result = spawnSync(command.file, command.args, {
-    cwd: command.cwd,
-    stdio: 'inherit',
-    env: process.env,
-    shell: process.platform === 'win32' && command.file.endsWith('.bat'),
-  });
+/** Append a line to the run log; logging must never break a build. */
+function logLine(logFile, text) {
+  if (logFile === null) {
+    return;
+  }
+  try {
+    appendFileSync(logFile, text.endsWith('\n') ? text : `${text}\n`);
+  } catch {
+    // a full disk or a locked file must not mask the real result
+  }
+}
+
+function runCommand(command, log, logDir = null) {
+  const line = `    $ ${command.file} ${command.args.join(' ')}`;
+  log(line);
+  if (logDir !== null && command.logName !== undefined) {
+    logLine(path.join(logDir, command.logName), `${line}\n`);
+  }
+  // On Windows the tools this driver calls are batch files from depot_tools
+  // (`gn.bat`, `autoninja.bat`); lib/exec.mjs runs them through cmd.exe with
+  // correct quoting. On POSIX this is a plain spawn.
+  const result = spawnCommand(
+    { file: command.file, args: command.args, cwd: command.cwd },
+    { env: process.env },
+  );
   if (result.error !== undefined) {
     throw new Error(
       `${command.file} could not be started: ${result.error.message}`,
@@ -274,19 +386,17 @@ function resolveGnArgs(command, plan, log) {
   const gnArgsCommand = plan
     .find((s) => s.id === 'gn-args')
     .commands[0];
-  const rendered = spawnSync(
-    gnArgsCommand.file,
-    [...gnArgsCommand.args, '--print'],
+  // `gn-args --print` is the single source of the argument string; the driver
+  // never assembles GN arguments itself.
+  const rendered = captureCommand(
     {
+      file: gnArgsCommand.file,
+      args: [...gnArgsCommand.args, '--print'],
       cwd: gnArgsCommand.cwd,
-      encoding: 'utf8',
-      env: process.env,
     },
+    { env: process.env },
   );
-  if (rendered.status !== 0) {
-    throw new Error(`gn-args --print failed: ${rendered.stderr.trim()}`);
-  }
-  const argsText = rendered.stdout.trim();
+  const argsText = rendered.trim();
   log(`    reviewed GN arguments: ${argsText}`);
   return {
     ...command,
@@ -306,12 +416,39 @@ export const LADDER = [
   ['physical supported Windows machine', 'VERIFIED (run by a human)'],
 ];
 
-export function runBuild({ dest, options = {}, log = console.log } = {}) {
+function parseJobs(value) {
+  if (value === undefined) {
+    return null;
+  }
+  const jobs = Number.parseInt(value, 10);
+  if (!Number.isInteger(jobs) || jobs < 1) {
+    throw new Error(`--jobs must be a positive integer (got "${value}")`);
+  }
+  return jobs;
+}
+
+function parseOnly(value) {
+  if (value === undefined) {
+    return null;
+  }
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+export function runBuild({
+  dest,
+  options = {},
+  logDir = null,
+  log = console.log,
+} = {}) {
   if (dest === undefined) {
     throw new Error('--dest <checkout-parent-directory> is required');
   }
   const plan = buildPlan({ dest, ...options });
   const reached = [];
+  const started = Date.now();
 
   log(`Aurelia build`);
   log(`  checkout destination: ${dest}`);
@@ -320,15 +457,55 @@ export function runBuild({ dest, options = {}, log = console.log } = {}) {
     log(`    ${step.padEnd(36)} -> ${state}`);
   }
   log('');
+  if (logDir !== null) {
+    mkdirSync(logDir, { recursive: true });
+    logLine(
+      path.join(logDir, 'build.log'),
+      [
+        `Aurelia build ${new Date().toISOString()}`,
+        `dest: ${dest}`,
+        `stages: ${plan.map((stage) => stage.id).join(', ')}`,
+      ].join('\n'),
+    );
+  }
 
   for (const stage of plan) {
     log(`[${stage.id}] ${stage.title}`);
+    if (logDir !== null) {
+      logLine(
+        path.join(logDir, 'build.log'),
+        `\n[${stage.id}] ${stage.title} ${new Date().toISOString()}`,
+      );
+    }
     for (const command of stage.commands) {
-      runCommand(resolveGnArgs(command, plan, log), log);
+      const resolved = resolveGnArgs(command, plan, log);
+      try {
+        runCommand(resolved, log, logDir);
+      } catch (error) {
+        if (logDir !== null) {
+          logLine(
+            path.join(logDir, 'last-error.txt'),
+            [
+              `time: ${new Date().toISOString()}`,
+              `stage: ${stage.id}`,
+              `command: ${resolved.file} ${resolved.args.join(' ')}`,
+              `error: ${error.message}`,
+            ].join('\n'),
+          );
+        }
+        throw error;
+      }
     }
     reached.push(stage.id);
     log(`[${stage.id}] done`);
     log('');
+  }
+
+  if (logDir !== null) {
+    logLine(
+      path.join(logDir, 'build.log'),
+      `finished: ${reached.length} stage(s) in ${Math.round((Date.now() - started) / 1000)}s\n`,
+    );
   }
 
   const manifestPath = path.join(
@@ -364,10 +541,17 @@ if (isMain) {
   --dry-run          print the stage plan without executing anything
   --out <dir>        build output directory (default: <checkout>/out/Release)
   --stage <dir>      staging directory (default: <dest>/artifacts/staged)
-  --aurelia-revision <sha>  recorded in build-manifest.json
+  --aurelia-revision <sha>   recorded in build-manifest.json
+  --profile <name>   dev (default) | low-resource  (see config/gn/*.gn)
+  --jobs <n>         autoninja -j N (low-resource: tools/chromium/low-resource.mjs
+                     computes this from measured RAM and logical cores)
+  --only <a,b>       run only these stages (resume a partial run),
+                     e.g. --only sync | --only compile | --only smoke-test
+  --log-dir <dir>    tee build.log / gn.log / last-error.txt into <dir>
 
 Every stage calls the same tool the CI workflow calls; the pipeline is identical
-whether it runs here or on the self-hosted builder.`);
+whether it runs here, on the self-hosted builder, or through a bootstrap script
+like tools/windows/bootstrap-build.ps1.`);
       process.exitCode = 0;
     } else if (argv.includes('--dry-run')) {
       const plan = buildPlan({
@@ -375,6 +559,9 @@ whether it runs here or on the self-hosted builder.`);
         outDir: valueOf('--out'),
         stageDir: valueOf('--stage'),
         aureliaRevision: valueOf('--aurelia-revision') ?? '<aurelia-revision>',
+        profile: valueOf('--profile') ?? 'dev',
+        jobs: parseJobs(valueOf('--jobs')),
+        only: parseOnly(valueOf('--only')),
       });
       for (const stage of plan) {
         console.log(`[${stage.id}] ${stage.title}`);
@@ -390,11 +577,15 @@ whether it runs here or on the self-hosted builder.`);
     } else {
       const result = runBuild({
         dest: valueOf('--dest'),
+        logDir: valueOf('--log-dir') ?? null,
         options: {
           outDir: valueOf('--out'),
           stageDir: valueOf('--stage'),
           aureliaRevision: valueOf('--aurelia-revision'),
           skipSync: argv.includes('--skip-sync'),
+          profile: valueOf('--profile') ?? 'dev',
+          jobs: parseJobs(valueOf('--jobs')),
+          only: parseOnly(valueOf('--only')),
         },
       });
       console.log(
