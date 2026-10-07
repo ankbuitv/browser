@@ -24,14 +24,6 @@
 name: Chromium hosted Windows experiment
 
 on:
-  # TEMPORARY BOOTSTRAP TRIGGER - removed again in the very next commit.
-  # The automation credential cannot create a workflow_dispatch event (403,
-  # see docs/CI-SECURITY.md), and this file is not yet on the default branch,
-  # so the only way to start the first controlled experiment is a push to this
-  # branch. It is deleted as soon as the run exists so the workflow stays a
-  # manual, quota-on-purpose tool.
-  push:
-    branches: ['arena/05fa84f1-browser']
   workflow_dispatch:
     inputs:
       mode:
