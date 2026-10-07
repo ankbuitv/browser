@@ -1,0 +1,65 @@
+{
+  "baseRevision": "6dfaefa462dbbed162e67eb277914f6b1afa36ac",
+  "baseVersion": "155.0.8059.73",
+  "upstreamRepository": "https://github.com/chromium/chromium",
+  "recordedAt": "2026-10-07",
+  "note": "Digests of the untouched upstream pre-images each patch expects. Records both sides of every change so patch verification is possible offline.",
+  "preImages": [
+    {
+      "path": "chrome/browser/BUILD.gn",
+      "bytes": 161835,
+      "sha256": "5c9a66b731954d1d28c7f630071880f0a879bfef924338362004b9ad19f4444b"
+    },
+    {
+      "path": "chrome/browser/resources/BUILD.gn",
+      "bytes": 21277,
+      "sha256": "10fa6d5828ed4254f70df74c5c6b6fa75ff5a35f4515379b69e0f27c98361df9"
+    },
+    {
+      "path": "chrome/browser/ui/BUILD.gn",
+      "bytes": 184641,
+      "sha256": "b952b1fd222b1da3cd6e28a363738b6a6a971f6ca5ef1d61beb976a1d3778fe0"
+    },
+    {
+      "path": "chrome/browser/ui/webui/BUILD.gn",
+      "bytes": 30843,
+      "sha256": "9bff25e53a6d2ce1b364c7baf03225915f5c9d02bbd22ca01e5cec96b49e994a"
+    },
+    {
+      "path": "chrome/browser/ui/webui/chrome_web_ui_configs.cc",
+      "bytes": 27927,
+      "sha256": "e96a1eadc4595835fea0148b14edcc2125f5eacd3b439946124f29c029b8d675"
+    },
+    {
+      "path": "chrome/common/webui_url_constants.h",
+      "bytes": 33752,
+      "sha256": "912d6325c0d0d5c6e9f287962a5629b8ac4338bdbe5f168d92aab86f3534616e"
+    }
+  ],
+  "postImages": [
+    {
+      "path": "chrome/browser/BUILD.gn",
+      "sha256": "0228944bc89db58c03df718f6dfcc6c4366b2ad1a6a244c99dd03e1182a2f278"
+    },
+    {
+      "path": "chrome/browser/resources/BUILD.gn",
+      "sha256": "0151d3b885316f81da046a4a2a698b3ca7e963ad5d49351469b6d3e5b3a15ee1"
+    },
+    {
+      "path": "chrome/browser/ui/BUILD.gn",
+      "sha256": "aea892d3a38f90c5170a8ddf34081310584a319c9744ea5cfb3061ced1eef107"
+    },
+    {
+      "path": "chrome/browser/ui/webui/BUILD.gn",
+      "sha256": "2c1cb0fe018e2ec3a5ec5348d38df3101f37ca0559525975a6ed4892c77b0495"
+    },
+    {
+      "path": "chrome/browser/ui/webui/chrome_web_ui_configs.cc",
+      "sha256": "7dd84021c22c75d5fd269d57b8741a200a6c6cb9417e4b047e3e92b56906e106"
+    },
+    {
+      "path": "chrome/common/webui_url_constants.h",
+      "sha256": "1913442b50da84319690a64b696cae681d06525473955a75149d11c75b0fd449"
+    }
+  ]
+}
