@@ -313,3 +313,64 @@ describe('command line', () => {
     expect(result.status).toBe(2);
   });
 });
+
+describe('the Windows SDK requirement when Chromium downloads its own', () => {
+  // Chromium does not need a preinstalled SDK: with DEPOT_TOOLS_WIN_TOOLCHAIN
+  // left at its default of 1, build/vs_toolchain.py downloads the pinned
+  // toolchain and SDK (10.0.28000.0) into depot_tools/win_toolchain/vs_files.
+  // GitHub's Windows image ships 10.0.26100.0, which is *older* than the pin,
+  // so the download happens there either way.
+
+  function withoutSdk() {
+    const machine = referenceMachine();
+    machine.tooling = { ...machine.tooling, windowsSdks: [] };
+    return machine;
+  }
+
+  it('is a hard requirement by default', () => {
+    const verdict = evaluateEnvironment(withoutSdk(), { experimentMode: true });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.problems.join(' ')).toContain('SDK');
+    expect(verdict.warnings.join(' ')).not.toContain('SDK');
+  });
+
+  it('becomes a recorded warning with --allow-missing-sdk', () => {
+    const verdict = evaluateEnvironment(withoutSdk(), {
+      experimentMode: true,
+      allowMissingSdk: true,
+    });
+    expect(verdict.ok).toBe(true);
+    expect(verdict.problems).toHaveLength(0);
+    expect(verdict.warnings.join(' ')).toContain('SDK');
+    // The reason travels with the verdict, so a report can never claim the
+    // machine was simply good enough.
+    expect(verdict.warnings.join(' ')).toContain('10.0.28000.0');
+  });
+
+  it('does not excuse anything else', () => {
+    const broken = withoutSdk();
+    broken.tooling = { ...broken.tooling, visualStudio: null, git: null };
+    const verdict = evaluateEnvironment(broken, {
+      experimentMode: true,
+      allowMissingSdk: true,
+    });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.problems.join(' ')).toContain('C++');
+    expect(verdict.problems.join(' ')).toContain('git');
+  });
+
+  it('is opt-in on the command line only', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'aurelia-sdk-'));
+    const file = path.join(dir, 'environment.json');
+    writeFileSync(file, JSON.stringify(withoutSdk()));
+    const run = (args) =>
+      spawnSync(process.execPath, [TOOL, '--environment', file, ...args], {
+        encoding: 'utf8',
+      });
+
+    expect(run(['--low-resource-experiment']).status).toBe(1);
+    const allowed = run(['--low-resource-experiment', '--allow-missing-sdk']);
+    expect(allowed.status).toBe(0);
+    expect(allowed.stdout).toContain('SDK');
+  });
+});

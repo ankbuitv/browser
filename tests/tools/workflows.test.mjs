@@ -369,6 +369,9 @@ describe('hosted constrained experiment', () => {
     // The experimental floor is a second, separate policy module.
     expect(workflow).toContain('tools/chromium/low-resource.mjs');
     expect(workflow).toContain('--low-resource-experiment');
+    // A missing preinstalled Windows SDK is not a disqualification: Chromium
+    // downloads the SDK it pins. The exemption is opt-in and evidenced.
+    expect(workflow).toContain('--allow-missing-sdk');
     // No hard-coded smaller requirement anywhere in the file.
     expect(workflow).not.toMatch(/cpuCores\s*=\s*[1-7]\b/);
     expect(workflow).not.toMatch(/ramGb\s*=\s*(1?[0-9]|2[0-9])\b/);
@@ -390,6 +393,28 @@ describe('hosted constrained experiment', () => {
     // An emergency reserve the compile stops before consuming.
     expect(workflow).toContain('EXPERIMENT_DISK_RESERVE_GB');
     expect(workflow).toContain('emergency reserve');
+  });
+
+  it('discovers the Windows SDK instead of guessing one path', () => {
+    const workflow = read();
+    // The first run refused a machine that can build, because it looked in
+    // exactly one directory. Discovery now tries the registry, both kit roots
+    // and a recursive search - and reports what it found.
+    expect(workflow).toContain('Windows Kits\\Installed Roots');
+    expect(workflow).toContain('KitsRoot10');
+    expect(workflow).toContain('KitsRoot11');
+    expect(workflow).toContain('Windows SDK discovery');
+  });
+
+  it('picks the roomiest volume, not the first one the OS reports', () => {
+    const workflow = read();
+    // Sort-Object -Property reads nothing off an OrderedDictionary, so the
+    // objects have to be PSCustomObjects; the first run picked C: (29.2 GB)
+    // over D: (219.9 GB) because of exactly that.
+    expect(workflow).toContain('[pscustomobject]@{');
+    expect(workflow).toContain(
+      '$chosen = @($ntfs | Sort-Object -Property freeGb -Descending)[0]',
+    );
   });
 
   it('reclaims disk from an allowlist, never from the toolchain', () => {

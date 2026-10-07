@@ -97,6 +97,13 @@ jobs:
       EXPERIMENT_COMPILE_BUDGET_MINUTES: ${{ github.event.inputs.compile_budget_minutes || '150' }}
       EXPERIMENT_DISK_RESERVE_GB: ${{ github.event.inputs.disk_reserve_gb || '10' }}
       EXPERIMENT_REASON: ${{ github.event.inputs.reason || 'unspecified' }}
+      # Chromium downloads the toolchain and the Windows SDK it pins
+      # (SDK_VERSION = '10.0.28000.0', build/vs_toolchain.py at the pinned
+      # revision) into depot_tools/win_toolchain/vs_files unless this is 0.
+      # It is left at 1 on purpose: the SDK preinstalled on GitHub's Windows
+      # image is 10.0.26100.0, which is *older* than the pin, so pointing the
+      # build at the local install would fail on the SDK version check.
+      DEPOT_TOOLS_WIN_TOOLCHAIN: '1'
     steps:
       - name: Check out Aurelia
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -123,23 +130,28 @@ jobs:
           $os       = Get-CimInstance Win32_OperatingSystem
           $computer = Get-CimInstance Win32_ComputerSystem
 
+          # PSCustomObject, not [ordered]@{}: Sort-Object -Property cannot read
+          # a key off an OrderedDictionary, so sorting a pipeline of those is a
+          # no-op - which is exactly how the first run of this workflow picked
+          # C: (29.2 GB free) instead of D: (219.9 GB).
           $volumes = @(
             Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-Object {
-              [ordered]@{
+              [pscustomobject]@{
                 drive      = $_.DeviceID
                 volumeName = $_.VolumeName
                 filesystem = $_.FileSystem
                 sizeGb     = [math]::Round($_.Size / 1GB, 1)
                 freeGb     = [math]::Round($_.FreeSpace / 1GB, 1)
               }
-            } | Sort-Object -Property freeGb -Descending
+            }
           )
+          $volumes = @($volumes | Sort-Object -Property freeGb -Descending)
 
           # The checkout goes on the roomiest NTFS volume, not on TEMP: on the
-          # measured image C: and TEMP had 32.1 GB free while D: had 147 GB.
+          # measured image C: and TEMP had 29-32 GB free while D: had 147-220 GB.
           $ntfs = @($volumes | Where-Object { $_.filesystem -eq 'NTFS' })
           if ($ntfs.Count -eq 0) { $ntfs = $volumes }
-          $chosen = $ntfs[0]
+          $chosen = @($ntfs | Sort-Object -Property freeGb -Descending)[0]
           $dest = Join-Path $chosen.drive 'aurelia'
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           $tmpDir = Join-Path $dest 'tmp'
@@ -163,8 +175,59 @@ jobs:
             )
           }
 
-          $sdkInclude = 'C:\Program Files (x86)\Windows Kits\10\Include'
-          $windowsSdks = if (Test-Path $sdkInclude) { @(Get-ChildItem $sdkInclude -Directory | Select-Object -ExpandProperty Name) } else { @() }
+          # Windows SDK discovery, several ways, because the only thing worse
+          # than not knowing the SDK path is guessing one path and refusing a
+          # machine that can perfectly well build. Chromium itself looks in
+          # %ProgramFiles(x86)%\Windows Kits\10 (build/vs_toolchain.py at the
+          # pinned revision), so that is the first candidate; the registry
+          # records where the kits were actually installed.
+          $sdkIncludeRoots = New-Object System.Collections.Generic.List[string]
+          foreach ($key in @(
+            'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots',
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows Kits\Installed Roots'
+          )) {
+            $properties = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+            if ($properties -eq $null) { continue }
+            foreach ($name in @('KitsRoot10', 'KitsRoot11')) {
+              $property = $properties.PSObject.Properties[$name]
+              if ($property -ne $null -and -not [string]::IsNullOrWhiteSpace($property.Value)) {
+                $sdkIncludeRoots.Add((Join-Path ([string]$property.Value) 'Include'))
+              }
+            }
+          }
+          foreach ($candidate in @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Include'),
+            (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\11\Include'),
+            'C:\Program Files (x86)\Windows Kits\10\Include'
+          )) {
+            if (-not [string]::IsNullOrWhiteSpace($candidate)) { $sdkIncludeRoots.Add($candidate) }
+          }
+          $windowsSdks = New-Object System.Collections.Generic.List[string]
+          $sdkDiagnostics = New-Object System.Collections.Generic.List[string]
+          foreach ($root in ($sdkIncludeRoots | Select-Object -Unique)) {
+            $exists = Test-Path $root
+            $sdkDiagnostics.Add("$root exists=$exists")
+            if (-not $exists) { continue }
+            foreach ($directory in @(Get-ChildItem $root -Directory -ErrorAction SilentlyContinue)) {
+              if ($directory.Name -match '^\d+\.\d+\.\d+') { $windowsSdks.Add($directory.Name) }
+            }
+          }
+          if ($windowsSdks.Count -eq 0) {
+            # Last resort: search the kits tree for any version directory, and
+            # say so, so the report shows what the machine actually has.
+            $kitsParent = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits'
+            if (Test-Path $kitsParent) {
+              $found = @(Get-ChildItem $kitsParent -Directory -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 10)
+              foreach ($directory in $found) {
+                $windowsSdks.Add($directory.Name)
+                $sdkDiagnostics.Add("found by search: $($directory.FullName)")
+              }
+            }
+          }
+          $sdkDiagnostics.Add("sdkVersions=$($windowsSdks -join ', ')")
+          Write-Host "::notice title=Windows SDK discovery::$($sdkDiagnostics -join ' | ')"
+          $windowsSdks = @($windowsSdks | Select-Object -Unique)
 
           $pagefileUsage = @(Get-CimInstance Win32_PageFileUsage -ErrorAction SilentlyContinue)
           $pagefileGb = [math]::Round((($pagefileUsage | Measure-Object -Property AllocatedBaseSize -Sum).Sum) / 1024, 1)
@@ -300,7 +363,12 @@ jobs:
           # Visual Studio C++ toolset, a Windows SDK, git and Node. Anything
           # below it is refused, because filling a disk or thrashing swap for
           # hours is not a useful experiment.
-          $verdictJson = & node tools/chromium/low-resource.mjs --environment artifacts/hosted-constrained-environment.json --low-resource-experiment --json
+          # --allow-missing-sdk is deliberate and evidenced: Chromium downloads
+          # the SDK it pins (10.0.28000.0 at the pinned revision) into
+          # depot_tools/win_toolchain/vs_files unless DEPOT_TOOLS_WIN_TOOLCHAIN
+          # is set to 0, so a machine with no SDK - or with GitHub's older
+          # 10.0.26100.0 - is not disqualified by its absence.
+          $verdictJson = & node tools/chromium/low-resource.mjs --environment artifacts/hosted-constrained-environment.json --low-resource-experiment --allow-missing-sdk --json
           $code = $LASTEXITCODE
           # 0 = may proceed, 1 = refused by the floor (handled below, with the
           # problems listed), 2 = the check itself could not run.
@@ -446,7 +514,7 @@ jobs:
         id: sync
         if: steps.floor.outputs.admissible == 'true'
         shell: pwsh
-        timeout-minutes: 90
+        timeout-minutes: 110
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
@@ -498,7 +566,7 @@ jobs:
         id: gn-gen
         if: steps.overlay.outcome == 'success'
         shell: pwsh
-        timeout-minutes: 30
+        timeout-minutes: 25
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
@@ -515,7 +583,7 @@ jobs:
         id: graph
         if: steps.gn-gen.outcome == 'success'
         shell: pwsh
-        timeout-minutes: 20
+        timeout-minutes: 15
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
@@ -558,8 +626,20 @@ jobs:
           $env:NINJA_SUMMARIZE_BUILD = '1'
           New-Item -ItemType Directory -Force -Path 'artifacts/logs' | Out-Null
 
-          $budget = [int]$env:EXPERIMENT_COMPILE_BUDGET_MINUTES
+          # The budget is the smaller of what the operator asked for and the
+          # time the job actually has left. A fixed number would either waste
+          # the window (a fast sync leaves an hour unused) or overrun it
+          # (the 360-minute job ceiling kills the step, and with it the
+          # evidence). 325 is the ceiling minus a tail reserve for the
+          # evidence, packaging and upload steps.
+          $startedAt = [DateTime]::Parse($env:EXPERIMENT_STARTED_AT).ToLocalTime()
+          $elapsedBefore = ((Get-Date) - $startedAt).TotalMinutes
+          $timeLeft = 325 - $elapsedBefore - 35
+          $budget = [int][Math]::Min(
+            [double][int]$env:EXPERIMENT_COMPILE_BUDGET_MINUTES,
+            [double][Math]::Max(10.0, $timeLeft))
           $reserve = [int]$env:EXPERIMENT_DISK_RESERVE_GB
+          Write-Host "compile budget: $budget minute(s) (asked for $env:EXPERIMENT_COMPILE_BUDGET_MINUTES; $elapsedBefore min already used)"
           $buildArgs = @(
             'tools/chromium/build.mjs',
             '--dest', "$env:AURELIA_CHROMIUM_DEST",
@@ -673,7 +753,7 @@ jobs:
         id: validate
         if: steps.compile.outputs.compiled == 'true'
         shell: pwsh
-        timeout-minutes: 40
+        timeout-minutes: 30
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false

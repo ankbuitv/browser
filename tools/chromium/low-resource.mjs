@@ -170,7 +170,10 @@ function versionMajor(text) {
  * @param {object} environment the JSON report the bootstrap script wrote
  * @param {{experimentMode?: boolean}} [options]
  */
-export function evaluateEnvironment(environment = {}, { experimentMode = false } = {}) {
+export function evaluateEnvironment(
+  environment = {},
+  { experimentMode = false, allowMissingSdk = false } = {},
+) {
   const experiment = experimentMode === true;
   const windows = environment.windows ?? {};
   const cpu = environment.cpu ?? {};
@@ -229,8 +232,25 @@ export function evaluateEnvironment(environment = {}, { experimentMode = false }
       'Visual Studio with the "Desktop development with C++" workload (VC.Tools.x86.x64) was not found',
     );
   }
+  // A preinstalled Windows SDK is only required when the build is going to use
+  // it. It is not: with DEPOT_TOOLS_WIN_TOOLCHAIN left at its default (1),
+  // build/vs_toolchain.py at the pinned revision downloads the pinned toolchain
+  // and its SDK (SDK_VERSION = '10.0.28000.0') into
+  // depot_tools/win_toolchain/vs_files. A machine with no SDK - or with an
+  // SDK older than the pin, which is what GitHub's Windows image ships
+  // (10.0.26100.0) - therefore still builds. This is opt-in, off by default,
+  // and the reason is recorded in the verdict either way.
   if (!Array.isArray(tooling.windowsSdks) || tooling.windowsSdks.length === 0) {
-    problems.push('no Windows 10/11 SDK was found');
+    if (allowMissingSdk) {
+      warnings.push(
+        'no preinstalled Windows 10/11 SDK was found; Chromium downloads the SDK ' +
+          "it pins (10.0.28000.0 at the pinned revision, build/vs_toolchain.py) into " +
+          'depot_tools/win_toolchain/vs_files when DEPOT_TOOLS_WIN_TOOLCHAIN is left at ' +
+          'its default of 1, so this machine is not disqualified by its absence',
+      );
+    } else {
+      problems.push('no Windows 10/11 SDK was found');
+    }
   }
   if (!(versionMajor(tooling.git) >= MINIMUM_GIT_MAJOR)) {
     problems.push(
@@ -478,6 +498,9 @@ if (isMain) {
 
   --environment <file>        JSON report written by tools/windows/bootstrap-build.ps1
   --low-resource-experiment   apply the experimental floor (RAM/CPU become warnings)
+  --allow-missing-sdk         treat "no preinstalled Windows SDK" as a warning:
+                              Chromium downloads the SDK it pins (see
+                              build/vs_toolchain.py at the pinned revision)
   --json                      print the machine-readable verdict instead of the report
   --requirements              print what the machine has to provide
 
@@ -500,6 +523,7 @@ Exit codes: 0 may proceed, 1 problems exist, 2 usage or parse error.`);
         const environment = JSON.parse(readFileSync(environmentFile, 'utf8'));
         const verdict = evaluateEnvironment(environment, {
           experimentMode: argv.includes('--low-resource-experiment'),
+          allowMissingSdk: argv.includes('--allow-missing-sdk'),
         });
         if (argv.includes('--json')) {
           console.log(JSON.stringify(verdict, null, 2));
