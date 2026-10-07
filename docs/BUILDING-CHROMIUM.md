@@ -129,6 +129,37 @@ machine. It produces a normal development build - the sandbox, site isolation,
 TLS verification and process isolation are untouched - and it is not a
 production path.
 
+### GN arguments are verified, not invented
+
+Every key in `config/gn/*.gn` was checked against the pinned revision by
+reading the upstream file that declares it, and `tools/chromium/gn-args.mjs`
+rejects anything not on the reviewed allowlist. Two arguments that look like
+obvious wins on a small machine were checked and deliberately **not** added:
+
+- **`blink_symbol_level`** and **`v8_symbol_level`**: upstream's own
+  `docs/windows_build_instructions.md` still recommends both under "Faster
+  builds" at the pinned revision, but neither is declared anywhere in the tree.
+  `build/config/compiler/compiler.gni` - where both historically lived -
+  contains no such key, and neither does any of the 26 `build/config/*.gni`
+  files. The documentation is stale, and passing an undeclared argument makes
+  `gn gen` fail with "Unknown argument", not build faster.
+- **`enable_precompiled_headers`**: `build/config/pch.gni` already defaults it
+  to `true` for exactly this shape of build (not official, no remote execution,
+  no `cc_wrapper`, not Linux), so setting it would change nothing.
+
+For reference, the Windows default this configuration overrides is
+`symbol_level = 2`: `compiler.gni` ends its default chain with
+`else if ((!is_linux && !is_chromeos && !is_fuchsia && ...) || is_debug)` →
+`default_symbol_level = 2`. So `symbol_level = 0` is a real reduction here, and
+the cost is incomplete crash stacks - which is why no released build uses it.
+
+### Attempting this on a hosted runner
+
+[HOSTED-CONSTRAINED-EXPERIMENT.md](HOSTED-CONSTRAINED-EXPERIMENT.md) records
+one below-spec attempt on a standard GitHub-hosted Windows runner, with disk
+measured at four points and the exact GN arguments, revisions and timings
+attached.
+
 The same steps by hand, with the reviewed argument set - do not invent
 arguments per machine.
 

@@ -124,6 +124,14 @@ large, a disk reserve the build stops before consuming, and a job count computed
 from the measured machine. It has not been run on Windows yet and it proves
 nothing until it is.
 
+The same question is being asked of a standard GitHub-hosted Windows runner
+(4 logical cores, 16 GB RAM) in one controlled
+`HOSTED_CONSTRAINED_EXPERIMENT`, with the GN arguments verified against the
+pinned revision and disk measured at four points:
+[docs/HOSTED-CONSTRAINED-EXPERIMENT.md](docs/HOSTED-CONSTRAINED-EXPERIMENT.md).
+It is expected to run out of time rather than memory, and the result - either
+way - is recorded with the numbers.
+
 ## Repository layout
 
 ```
@@ -140,22 +148,23 @@ docs/                   Architecture, roadmap, threat models, build guides
 
 ## Documentation
 
-| Topic                            | Document                                                   |
-| -------------------------------- | ---------------------------------------------------------- |
-| What exists today                | [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md)           |
-| Architecture & principles        | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)               |
-| Roadmap & milestones             | [docs/ROADMAP.md](docs/ROADMAP.md)                         |
-| Chromium upstream strategy       | [docs/CHROMIUM-UPSTREAM.md](docs/CHROMIUM-UPSTREAM.md)     |
-| How much we change Chromium      | [docs/FORK-DELTA.md](docs/FORK-DELTA.md)                   |
-| Building                         | [docs/BUILDING-CHROMIUM.md](docs/BUILDING-CHROMIUM.md)     |
-| Local low-resource Windows build | [docs/LOCAL-WINDOWS-BUILD.md](docs/LOCAL-WINDOWS-BUILD.md) |
-| Privacy (data flows)             | [PRIVACY.md](PRIVACY.md)                                   |
-| Security & reporting             | [SECURITY.md](SECURITY.md)                                 |
-| Threats                          | [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)               |
-| Testing                          | [docs/TESTING.md](docs/TESTING.md)                         |
-| CI security                      | [docs/CI-SECURITY.md](docs/CI-SECURITY.md)                 |
-| Release process                  | [docs/RELEASE.md](docs/RELEASE.md)                         |
-| Contributing                     | [CONTRIBUTING.md](CONTRIBUTING.md)                         |
+| Topic                            | Document                                                                       |
+| -------------------------------- | ------------------------------------------------------------------------------ |
+| What exists today                | [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md)                               |
+| Architecture & principles        | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                                   |
+| Roadmap & milestones             | [docs/ROADMAP.md](docs/ROADMAP.md)                                             |
+| Chromium upstream strategy       | [docs/CHROMIUM-UPSTREAM.md](docs/CHROMIUM-UPSTREAM.md)                         |
+| How much we change Chromium      | [docs/FORK-DELTA.md](docs/FORK-DELTA.md)                                       |
+| Building                         | [docs/BUILDING-CHROMIUM.md](docs/BUILDING-CHROMIUM.md)                         |
+| Local low-resource Windows build | [docs/LOCAL-WINDOWS-BUILD.md](docs/LOCAL-WINDOWS-BUILD.md)                     |
+| Hosted constrained experiment    | [docs/HOSTED-CONSTRAINED-EXPERIMENT.md](docs/HOSTED-CONSTRAINED-EXPERIMENT.md) |
+| Privacy (data flows)             | [PRIVACY.md](PRIVACY.md)                                                       |
+| Security & reporting             | [SECURITY.md](SECURITY.md)                                                     |
+| Threats                          | [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)                                   |
+| Testing                          | [docs/TESTING.md](docs/TESTING.md)                                             |
+| CI security                      | [docs/CI-SECURITY.md](docs/CI-SECURITY.md)                                     |
+| Release process                  | [docs/RELEASE.md](docs/RELEASE.md)                                             |
+| Contributing                     | [CONTRIBUTING.md](CONTRIBUTING.md)                                             |
 
 ## Development warning
 

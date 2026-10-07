@@ -70,17 +70,33 @@ a cheap, early RESOURCE LIMIT with measured numbers is the useful outcome.
 
 ### Measured: the standard hosted Windows runner (2026-10-07)
 
-[Run 37595986333](https://github.com/ankbuitv/browser/actions/runs/37595986333)
-(push-triggered verification run, `windows-latest`, preflight only) measured the
-machine, classified it, and skipped every stage from the Chromium sync onwards.
+The hosted pool is not one machine. Two measurements, taken an hour apart on
+the same image label, landed on different hardware - so the figures below are
+ranges, not constants, and the only safe conclusion is the shape of the answer:
+**4 logical cores and 16 GB RAM every time, and always exactly one volume with
+room for a Chromium checkout.**
 
-| Item                    | Measured                                                      | Minimum |
-| ----------------------- | ------------------------------------------------------------- | ------- |
-| Image                   | `win25-vs2026`, image `20260925.250.1` (Windows Server 2025)  | -       |
-| CPU                     | AMD EPYC 7763, **4 logical cores**                            | 8+      |
-| RAM                     | **16 GB** (13.3 GB available)                                 | 32 GB+  |
-| Free disk (best volume) | **147 GB** (`D:`; `C:` and `TEMP` 32.1 GB free each)          | 150 GB+ |
-| Verdict                 | **RESOURCE LIMIT** - three problems, reported before any sync | -       |
+| Item                    | Run 37595986333                                               | Run 37639529172                         | Minimum |
+| ----------------------- | ------------------------------------------------------------- | --------------------------------------- | ------- |
+| Image                   | `win25-vs2026`, image `20260925.250.1` (Windows Server 2025)  | same                                    | -       |
+| CPU                     | AMD EPYC 7763, **4 logical cores**                            | Intel Xeon 6973P-C, **4 logical cores** | 8+      |
+| RAM                     | **16 GB** (13.3 GB available)                                 | **16 GB**                               | 32 GB+  |
+| Free disk (best volume) | **147 GB** (`D:`; `C:` and `TEMP` 32.1 GB free each)          | **219.9 GB** (`D:`; `C:` 29.2 GB free)  | 150 GB+ |
+| Verdict                 | **RESOURCE LIMIT** - three problems, reported before any sync | cores and RAM still short; disk met     | -       |
+
+Two properties hold regardless of which VM answers:
+
+- **The roomy volume is never `TEMP`.** `C:` had 29-32 GB free in both runs
+  while `D:` had 147-220 GB. Any workflow that puts a Chromium checkout under
+  `$env:RUNNER_TEMP` (which is on `C:`) fails on disk long before it fails on
+  time. The constrained experiment picks the roomiest NTFS volume instead and
+  points `TMP`/`TEMP` at it too.
+- **The preinstalled Windows SDK is older than Chromium's pin.** The image
+  ships 10.0.26100.0; the pinned Chromium requires 10.0.28000.0
+  (`SDK_VERSION` in `build/vs_toolchain.py`) and downloads its own into
+  `depot_tools/win_toolchain/vs_files` unless `DEPOT_TOOLS_WIN_TOOLCHAIN=0`.
+  Pointing the build at the local install would therefore fail on the SDK
+  version, not save a download.
 
 The run failed by design (`Fail as RESOURCE LIMIT`, exit 1) with the annotation
 `logical cores: 4 (needs 8+); RAM: 16 GB (needs 32 GB+); free disk: 147 GB
