@@ -1,0 +1,237 @@
+name: Chromium heavy build (Windows x64)
+
+# The first binary target: Windows 10/11 x64.
+#
+# This workflow is intentionally explicit. Each step is one stage of the
+# pipeline, and a failure stops the run with a message naming the stage:
+#
+#   checkout Aurelia
+#     -> pinned depot_tools            (tools/chromium/sync.mjs)
+#     -> exact .gclient + sync SHA     (tools/chromium/sync.mjs)
+#     -> verify HEAD                   (tools/chromium/sync.mjs)
+#     -> verify patch set vs checkout  (cli.mjs verify-patches --checkout)
+#     -> install overlay + apply patch (install-overlay.mjs)
+#     -> verify fork delta budget      (cli.mjs fork-delta --check)
+#     -> gn gen                        (reviewed args from config/gn/)
+#     -> autoninja chrome
+#     -> stage runtime directory       (stage-runtime.mjs)
+#     -> smoke test                    (smoke-test.mjs, sandboxed)
+#     -> package + SHA-256             (unsigned development artifact)
+#     -> upload artifact
+#
+# Runner requirements, enforced by the capability probe below rather than
+# assumed: 8+ cores, 32 GB+ RAM, 150 GB+ free disk, Visual Studio C++ x64,
+# Git, Python 3 and Node.js >= 22.4. GitHub-hosted runners are deliberately not
+# used - see docs/CI-BUILD-FEASIBILITY.md for why, and what would have to change.
+#
+# There are no secrets here and the artifact is unsigned. SmartScreen will warn
+# about it; that warning is never bypassed, and the build is never described as
+# production-ready (signing.signed = false in build-manifest.json).
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Why this build is being run (recorded in the run log).
+        required: false
+        default: manual
+  schedule:
+    - cron: '15 2 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chromium-heavy-build-windows
+  cancel-in-progress: false
+
+jobs:
+  build-windows-x64:
+    name: Windows x64 development artifact (unsigned)
+    runs-on: [self-hosted, windows, x64, aurelia-chromium]
+    timeout-minutes: 720
+    env:
+      AURELIA_CHROMIUM_DEST: ${{ vars.AURELIA_CHROMIUM_DEST }}
+      AURELIA_SRC: ${{ vars.AURELIA_CHROMIUM_DEST }}\src
+      NINJA_SUMMARIZE_BUILD: '1'
+    steps:
+      - name: Check out Aurelia
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+
+      - name: Probe runner capabilities (fail fast on an undersized machine)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:AURELIA_CHROMIUM_DEST)) {
+            throw 'Repository variable AURELIA_CHROMIUM_DEST is not set. It must point at a persistent directory with 150+ GB free space for the Chromium checkout.'
+          }
+          New-Item -ItemType Directory -Force -Path $env:AURELIA_CHROMIUM_DEST | Out-Null
+          $dest = (Resolve-Path $env:AURELIA_CHROMIUM_DEST).Path
+
+          $cpu = (Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum
+          $ramGb = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 1)
+          $driveLetter = (Get-Item $dest).PSDrive.Name
+          $freeGb = [math]::Round((Get-PSDrive -Name $driveLetter).Free / 1GB, 1)
+
+          $nodeVersion = (& node --version)
+          $gitVersion = (& git --version)
+          $pythonVersion = $null
+          try { $pythonVersion = (& python --version 2>&1 | Out-String).Trim() } catch { $pythonVersion = $null }
+
+          $vsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $visualStudio = $null
+          if (Test-Path $vsWhere) {
+            $visualStudio = (& $vsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Out-String).Trim()
+            if ([string]::IsNullOrWhiteSpace($visualStudio)) { $visualStudio = $null }
+          }
+
+          $capabilities = [ordered]@{
+            runner        = $env:RUNNER_NAME
+            os            = (Get-CimInstance Win32_OperatingSystem).Caption
+            architecture  = $env:PROCESSOR_ARCHITECTURE
+            cpuCores      = $cpu
+            ramGb         = $ramGb
+            freeDiskGb    = $freeGb
+            freeDiskPath  = $dest
+            node          = $nodeVersion
+            git           = $gitVersion
+            python        = $pythonVersion
+            visualStudio  = $visualStudio
+            checkedAt     = (Get-Date).ToUniversalTime().ToString('o')
+          }
+
+          $problems = @()
+          if ($cpu -lt 8) { $problems += "logical cores: $cpu (needs 8+)" }
+          if ($ramGb -lt 32) { $problems += "RAM: $ramGb GB (needs 32 GB+)" }
+          if ($freeGb -lt 150) { $problems += "free disk at $dest`: $freeGb GB (needs 150 GB+)" }
+          if ($null -eq $visualStudio) { $problems += 'Visual Studio with the C++ x64 toolchain (VC.Tools.x86.x64) was not found' }
+
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          # .NET WriteAllText: UTF-8 without a BOM, which Node's JSON.parse needs.
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) 'artifacts\runner-capabilities.json'),
+            ($capabilities | ConvertTo-Json -Depth 3) + "`n"
+          )
+
+          $capabilities.GetEnumerator() | ForEach-Object { Write-Host "$($_.Key): $($_.Value)" }
+          if ($null -eq $pythonVersion) { Write-Warning 'python was not found on PATH; depot_tools needs it on Windows' }
+          if ($problems.Count -gt 0) {
+            throw ("this runner is not a suitable Chromium builder:`n - " + ($problems -join "`n - "))
+          }
+
+      - name: Sync the pinned Chromium checkout
+        shell: pwsh
+        run: node tools/chromium/sync.mjs --dest "$env:AURELIA_CHROMIUM_DEST"
+
+      - name: Verify the patch set against the pristine checkout
+        shell: pwsh
+        run: node tools/chromium/cli.mjs verify-patches --checkout "$env:AURELIA_SRC"
+
+      - name: Install the Aurelia overlay and apply the patch set
+        shell: pwsh
+        run: node tools/chromium/install-overlay.mjs --checkout "$env:AURELIA_SRC"
+
+      - name: Verify the fork delta is still inside its reviewed budget
+        shell: pwsh
+        run: |
+          node tools/chromium/cli.mjs fork-delta --check
+          if ($LASTEXITCODE -ne 0) { throw 'the fork delta exceeded its budget; review docs/FORK-DELTA.md before raising it' }
+          node tools/chromium/cli.mjs fork-delta
+
+      - name: Validate the reviewed GN arguments
+        shell: pwsh
+        run: |
+          node tools/chromium/gn-args.mjs config/gn/win-x64-dev.gn
+          if ($LASTEXITCODE -ne 0) { throw 'the reviewed GN arguments failed policy validation' }
+
+      - name: gn gen (development Release, reviewed arguments)
+        shell: pwsh
+        working-directory: ${{ vars.AURELIA_CHROMIUM_DEST }}/src
+        run: |
+          $env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
+          $gnArgs = (node "$env:GITHUB_WORKSPACE\tools\chromium\gn-args.mjs" --print "$env:GITHUB_WORKSPACE\config\gn\win-x64-dev.gn")
+          & gn gen out\Release "--args=$gnArgs"
+          if ($LASTEXITCODE -ne 0) { throw "gn gen failed with exit code $LASTEXITCODE" }
+
+      - name: autoninja chrome
+        shell: pwsh
+        working-directory: ${{ vars.AURELIA_CHROMIUM_DEST }}/src
+        run: |
+          $env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
+          & autoninja -C out\Release chrome
+          if ($LASTEXITCODE -ne 0) { throw "autoninja failed with exit code $LASTEXITCODE" }
+
+      - name: Validate the effective arguments the build actually used
+        shell: pwsh
+        run: |
+          node tools/chromium/gn-args.mjs "$env:AURELIA_SRC\out\Release\args.gn"
+          if ($LASTEXITCODE -ne 0) { throw 'out/Release/args.gn is outside the reviewed policy' }
+
+      - name: Stage the complete runtime directory
+        shell: pwsh
+        run: |
+          node tools/chromium/stage-runtime.mjs --out "$env:AURELIA_SRC\out\Release" --dest "$env:AURELIA_CHROMIUM_DEST\artifacts\staged" --aurelia-revision "${{ github.sha }}" --gn-args "$env:AURELIA_SRC\out\Release\args.gn" --runner-capabilities artifacts\runner-capabilities.json
+          if ($LASTEXITCODE -ne 0) { throw "staging failed with exit code $LASTEXITCODE" }
+
+      - name: Smoke test the staged browser (sandboxed; no security-weakening flags)
+        shell: pwsh
+        run: |
+          node tools/chromium/smoke-test.mjs --binary "$env:AURELIA_CHROMIUM_DEST\artifacts\staged\chrome.exe" --report "$env:AURELIA_CHROMIUM_DEST\artifacts\smoke-test.json"
+          if ($LASTEXITCODE -ne 0) { throw 'the smoke test failed; the artifact is not published' }
+          Copy-Item "$env:AURELIA_CHROMIUM_DEST\artifacts\smoke-test.json" artifacts\
+
+      - name: Record the smoke-test result in the build manifest
+        shell: pwsh
+        run: |
+          node tools/chromium/stage-runtime.mjs --dest "$env:AURELIA_CHROMIUM_DEST\artifacts\staged" --record-smoke-test "$env:AURELIA_CHROMIUM_DEST\artifacts\smoke-test.json"
+          if ($LASTEXITCODE -ne 0) { throw 'the smoke test did not pass, so the manifest cannot claim TESTED' }
+
+      - name: Package the unsigned development artifact
+        shell: pwsh
+        run: |
+          $staging = "$env:AURELIA_CHROMIUM_DEST\artifacts\staged"
+          $manifest = Get-Content "$staging\build-manifest.json" -Raw | ConvertFrom-Json
+          $artifact = $manifest.artifact
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          $zip = Join-Path (Get-Location) "artifacts\$artifact"
+          if (Test-Path $zip) { Remove-Item $zip }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory($staging, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLower()
+          [System.IO.File]::WriteAllText("$($zip).sha256", "$hash  $artifact`n")
+          Write-Host "artifact: $artifact"
+          Write-Host "sha256:   $hash"
+          "artifact: $artifact" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "sha256:   $hash"   | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload the artifact and the build reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aurelia-windows-x64-dev
+          path: |
+            artifacts/*.zip
+            artifacts/*.sha256
+            artifacts/*.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Build state and honesty notes
+        if: always()
+        shell: pwsh
+        run: |
+          @(
+            'Build state ladder (never collapsed - see docs/BUILDING-CHROMIUM.md):',
+            '  patch applies         -> INTEGRATION SOURCE VERIFIED',
+            '  gn gen succeeds       -> CONFIGURATION VERIFIED',
+            '  autoninja succeeds    -> COMPILED',
+            '  browser launches      -> RUNTIME INTEGRATED',
+            '  smoke test passes     -> TESTED',
+            '  physical Windows test -> VERIFIED (owner-run, on real hardware)',
+            '',
+            'This artifact is UNSIGNED (signed=false, productionReady=false). SmartScreen will warn, and that warning is never bypassed.'
+          ) | Add-Content $env:GITHUB_STEP_SUMMARY

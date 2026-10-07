@@ -21,7 +21,8 @@
  *      cleanly and produces the exact expected result).
  *
  * What this does NOT prove: that Chromium compiles. Only the heavy build
- * workflow (.github/workflows/chromium-heavy-build.yml) can prove that.
+ * workflows in tools/ci/workflows/ (deployed to .github/workflows/) can prove
+ * that: chromium-heavy-build-windows.yml builds and smoke tests the tree.
  */
 import { readFileSync, readdirSync, existsSync, mkdirSync, rmSync, writeFileSync, statSync } from 'node:fs';
 import path from 'node:path';

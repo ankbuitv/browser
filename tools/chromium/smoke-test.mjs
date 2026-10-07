@@ -6,26 +6,38 @@
  * inside a real browser process. It launches the built binary with remote
  * debugging enabled and drives it over the Chrome DevTools Protocol:
  *
- *   1. chrome://aurelia loads and renders Aurelia's own status surface;
- *   2. the page reports the pinned Chromium revision;
- *   3. the binary's own version matches the pin (build-integrity check);
- *   4. the page's stylesheets loaded from the browser's resource pak;
- *   5. optional: a network navigation works (--check-network).
+ *   1. the browser process starts and exposes DevTools;
+ *   2. chrome://aurelia loads, renders Aurelia's own status surface, and its
+ *      stylesheets come from the browser's resource pak;
+ *   3. the binary's own product version and revision match the pin
+ *      (Browser.getVersion, i.e. the compiled-in constants);
+ *   4. a local test page loads - offline-safe, so a network outage cannot
+ *      produce a false failure;
+ *   5. the browser stays alive through the run and exits cleanly;
+ *   6. optional: a network navigation works (--check-network), which is a
+ *      connectivity check, NOT the privacy verification (that lives in
+ *      docs/NETWORK-CONNECTIONS.md and the privacy test suite).
+ *
+ * Sandbox policy: the test never passes --no-sandbox by default, because a
+ * sandboxed run is what a real user gets. A CI environment that genuinely
+ * cannot run sandboxed must pass --allow-disabled-sandbox, which is recorded
+ * in the report as NOT equivalent to product-runtime verification.
  *
  * It requires Node.js >= 22.4 for the global WebSocket implementation and
  * never runs as part of the installed browser - it is development tooling.
  *
  * Usage:
  *   node tools/chromium/smoke-test.mjs --binary out/Aurelia/chrome.exe
- *   node tools/chromium/smoke-test.mjs --binary ./chrome --extra-arg=--no-sandbox
- *   node tools/chromium/smoke-test.mjs --binary ./chrome --check-network --json
+ *   node tools/chromium/smoke-test.mjs --binary .\out\Release\chrome.exe --json
+ *   node tools/chromium/smoke-test.mjs --binary ./chrome --check-network
  */
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import { pathToFileURL } from 'node:url';
 
 import { loadConfig } from './lib/config.mjs';
 
@@ -190,10 +202,22 @@ async function openAndWaitFor(client, url, predicateExpression, timeoutMs) {
   );
 }
 
+async function waitForExit(child, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      return child.exitCode;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return null;
+}
+
 export async function runSmokeTest({
   binary,
   extraArgs = [],
   checkNetwork = false,
+  allowDisabledSandbox = false,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   log = () => {},
   config = loadConfig(),
@@ -205,9 +229,33 @@ export async function runSmokeTest({
     throw new Error(`binary not found: ${binary}`);
   }
 
+  const disableSandbox = extraArgs.includes('--no-sandbox');
+  if (disableSandbox && !allowDisabledSandbox) {
+    throw new Error(
+      'refusing to run with --no-sandbox: a sandboxed run is what users get. ' +
+        'Pass --allow-disabled-sandbox to acknowledge that the result is not ' +
+        'equivalent to product-runtime verification.',
+    );
+  }
+  const sandboxMode = disableSandbox ? 'disabled-by-explicit-flag' : 'default';
+
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'aurelia-smoke-'));
+  // A local page keeps the basic navigation assertion independent of the
+  // network: an offline or rate-limited builder must not fail the smoke test.
+  const localPagePath = path.join(userDataDir, 'smoke-test-page.html');
+  writeFileSync(
+    localPagePath,
+    '<!doctype html><html><head><meta charset="utf-8">' +
+      '<title>Aurelia local test page</title></head><body>' +
+      '<p id="marker">local-navigation-ok</p></body></html>',
+  );
+  const localPageUrl = pathToFileURL(localPagePath).href;
+
   log(`launching ${binary}`);
   log(`profile: ${userDataDir}`);
+  if (sandboxMode !== 'default') {
+    log('WARNING: sandbox disabled by explicit flag - this run is NOT product-equivalent');
+  }
 
   const child = spawn(
     binary,
@@ -307,8 +355,43 @@ export async function runSmokeTest({
 
     record(
       'page reports no privileged interfaces',
-      typeof page.text === 'string' && page.text.includes('no'),
+      typeof page.text === 'string' &&
+        page.text.includes('Privileged interfaces') &&
+        page.text.includes('none'),
       'verification card present',
+    );
+
+    // 2b. Build integrity from the browser itself: product version and the
+    //     compiled-in revision must match the pin exactly.
+    const browserVersion = await client.send('Browser.getVersion');
+    const revision = String(browserVersion.revision ?? '').replace(/^@/, '');
+    record(
+      'browser product version matches the pinned Chromium version',
+      String(browserVersion.product ?? '').includes(config.chromium.version),
+      `expected ${config.chromium.version}; browser reports ${browserVersion.product}`,
+    );
+    record(
+      'browser revision matches the pinned Chromium revision',
+      revision === config.chromium.revision,
+      `expected ${config.chromium.revision}; browser reports ${revision || 'nothing'}`,
+    );
+
+    // 3b. Local navigation: proves pages load without any network dependency.
+    const localSession = await openAndWaitFor(
+      client,
+      localPageUrl,
+      `document.readyState === 'complete' && !!document.body && document.body.innerText.includes('local-navigation-ok')`,
+      timeoutMs,
+    );
+    const localTitle = await evaluate(
+      client,
+      localSession.sessionId,
+      'document.title',
+    );
+    record(
+      'loads a local test page without network access',
+      localTitle === 'Aurelia local test page',
+      localPageUrl,
     );
 
     // 4. Optional network navigation (off by default; enabled on builders that
@@ -333,6 +416,26 @@ export async function runSmokeTest({
     } else {
       log('skipped network navigation (pass --check-network to enable)');
     }
+    // 5. The browser must still be running at the end of the run (not a
+    //    process that survived only long enough to answer one request).
+    record(
+      'browser process stays alive through the whole run',
+      child.exitCode === null && child.signalCode === null,
+      `exitCode=${child.exitCode} signal=${child.signalCode}`,
+    );
+
+    // 6. Clean shutdown: ask the browser to close and require exit code 0.
+    try {
+      await client.send('Browser.close');
+    } catch {
+      // The socket may close before the reply arrives; the exit check decides.
+    }
+    const exitCode = await waitForExit(child, 15_000);
+    record(
+      'browser exits cleanly after Browser.close',
+      exitCode === 0,
+      exitCode === null ? 'still running after 15s' : `exit code ${exitCode}`,
+    );
   } catch (error) {
     record('smoke test completed', false, error.message);
     if (browserOutput.length > 0) {
@@ -351,6 +454,13 @@ export async function runSmokeTest({
 
   return {
     ok: results.every((result) => result.ok),
+    binary,
+    sandboxMode,
+    equivalentToProductRuntime: sandboxMode === 'default',
+    pin: {
+      version: config.chromium.version,
+      revision: config.chromium.revision,
+    },
     results,
   };
 }
@@ -369,7 +479,9 @@ function parseArgs(argv) {
   return {
     binary: valueOf('--binary'),
     checkNetwork: argv.includes('--check-network'),
+    allowDisabledSandbox: argv.includes('--allow-disabled-sandbox'),
     json: argv.includes('--json'),
+    report: valueOf('--report'),
     extraArgs,
   };
 }
@@ -385,11 +497,19 @@ if (isMain) {
       ...options,
       log: options.json ? () => {} : console.log,
     });
+    if (options.report !== undefined) {
+      // Node writes UTF-8 without a BOM, which matters on Windows: shell
+      // redirection there would produce a file JSON.parse cannot read back.
+      writeFileSync(options.report, `${JSON.stringify(result, null, 2)}\n`);
+    }
     if (options.json) {
       console.log(JSON.stringify(result, null, 2));
     } else {
       console.log('');
       console.log(result.ok ? 'SMOKE TEST PASSED' : 'SMOKE TEST FAILED');
+      if (options.report !== undefined) {
+        console.log(`report: ${options.report} (sandbox: ${result.sandboxMode})`);
+      }
     }
     process.exitCode = result.ok ? 0 : 1;
   } catch (error) {

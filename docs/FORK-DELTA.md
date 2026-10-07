@@ -17,7 +17,7 @@ patched-up copy of a Chromium subsystem.
 > `node tools/chromium/cli.mjs verify-patches --online`.
 > **The tree has not been compiled yet** - there is no buildable builder in the
 > scaffolding environment. See [Status](#status) at the bottom of this file and
-> `.github/workflows/chromium-heavy-build.yml`.
+> `tools/ci/workflows/chromium-heavy-build-windows.yml`.
 
 ## Measured delta
 

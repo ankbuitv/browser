@@ -10,7 +10,7 @@
  *   generate-patch         regenerate patches from the pinned pre-images
  *   generate-version       regenerate aurelia_version.h from the pin config
  *   check-updates          report available Chromium updates (never merges)
- *   fork-delta             machine-readable fork-delta metrics
+ *   fork-delta             machine-readable fork-delta metrics (--check: budget)
  *
  * Exit codes: 0 success, 1 failure (CI treats any non-zero as a problem).
  */
@@ -36,7 +36,7 @@ commands:
   generate-patch         regenerate patches from the pinned pre-images
   generate-version       regenerate the compiled-in version header
   check-updates          report newer Chromium revisions (never merges)
-  fork-delta             machine-readable fork-delta metrics
+  fork-delta             machine-readable fork-delta metrics (--check: budget)
 
 options:
   --online               allow network access (verify-patches, check-updates)
@@ -272,6 +272,14 @@ function commandCheckUpdates(config) {
   return 0;
 }
 
+/**
+ * The reviewed fork-delta budget. Keeping the delta small is a product
+ * requirement - it is what makes Chromium security updates land quickly - so
+ * growing past this budget is a decision for a review, not a side effect of a
+ * build. See docs/FORK-DELTA.md.
+ */
+const FORK_DELTA_BUDGET = { modifiedUpstreamFiles: 10, addedLines: 50 };
+
 function commandForkDelta(config, argv) {
   const patches = listPatchFiles(patchesDir(config));
   const metas = patches
@@ -309,6 +317,28 @@ function commandForkDelta(config, argv) {
     console.log(`modified upstream files: ${metrics.modifiedUpstreamFiles}`);
     console.log(`added/removed lines:     +${metrics.addedLines}/-${metrics.removedLines}`);
     console.log(`overlay files:           ${metrics.overlayFileCount} (${metrics.overlayBytes} bytes)`);
+  }
+
+  if (argv.includes('--check')) {
+    const problems = [];
+    if (metrics.modifiedUpstreamFiles > FORK_DELTA_BUDGET.modifiedUpstreamFiles) {
+      problems.push(
+        `modified upstream files: ${metrics.modifiedUpstreamFiles} > budget ${FORK_DELTA_BUDGET.modifiedUpstreamFiles}`,
+      );
+    }
+    if (metrics.addedLines > FORK_DELTA_BUDGET.addedLines) {
+      problems.push(`added lines: ${metrics.addedLines} > budget ${FORK_DELTA_BUDGET.addedLines}`);
+    }
+    if (problems.length > 0) {
+      console.error('FORK DELTA BUDGET EXCEEDED (review docs/FORK-DELTA.md before raising it):');
+      for (const problem of problems) {
+        console.error(`  ${problem}`);
+      }
+      return 1;
+    }
+    console.log(
+      `fork delta within budget (<= ${FORK_DELTA_BUDGET.modifiedUpstreamFiles} files, <= ${FORK_DELTA_BUDGET.addedLines} added lines)`,
+    );
   }
   return 0;
 }

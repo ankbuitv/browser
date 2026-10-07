@@ -30,7 +30,7 @@ has been compiled yet. `docs/BUILDING-CHROMIUM.md` must be updated with real
 measurements (and `config/chromium_version.json` ->
 `buildRequirements.referenceBuilder`) after the first successful build. See the
 build-report artifact produced by
-`.github/workflows/chromium-heavy-build.yml`.
+`tools/ci/workflows/chromium-heavy-build-windows.yml` (deployed to `.github/workflows/` with `node tools/ci/install-workflows.mjs`, see docs/CI-SECURITY.md).
 
 ## One-time setup
 
@@ -91,25 +91,94 @@ be reproduced, and an unattributed failure wastes hours.
 
 ## Building
 
+Use the reviewed argument set; do not invent arguments per machine.
+
 ```bash
 cd /srv/aurelia-chromium/src
 
-# Developer build: faster to link, good enough to run Aurelia.
-gn gen out/Aurelia --args='is_component_build=true symbol_level=1'
+# The arguments live in config/gn/win-x64-dev.gn and are validated against an
+# allowlist by tools/chromium/gn-args.mjs before they are used.
+gn gen out/Release --args="$(node <repo>/tools/chromium/gn-args.mjs --print <repo>/config/gn/win-x64-dev.gn)"
+autoninja -C out/Release chrome
+```
 
-# Optimised build: slower, closer to a release.
-gn gen out/Aurelia --args='is_official_build=true is_component_build=false symbol_level=0 blink_symbol_level=0'
+Windows x64 - the first target platform - from a shell in the checkout:
 
-autoninja -C out/Aurelia -j"$(nproc)" chrome
+```powershell
+$env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
+$gnArgs = (node "$env:GITHUB_WORKSPACE\tools\chromium\gn-args.mjs" --print "$env:GITHUB_WORKSPACE\config\gn\win-x64-dev.gn")
+gn gen out\Release "--args=$gnArgs"
+autoninja -C out\Release chrome
 ```
 
 Notes:
 
-- `is_component_build=true` links much faster but is **not** a release build and
-  must never be published as one.
-- Do not pass `is_debug=true` unless you need a debugger; it multiplies both
-  build time and disk usage.
-- Windows: the output binary is `out/Aurelia/chrome.exe`. Linux: `out/Aurelia/chrome`.
+- `config/gn/win-x64-dev.gn` is a **development Release** configuration:
+  `is_debug=false`, `is_component_build=true`, `symbol_level=1`. Every key was
+  verified to exist at the pinned Chromium revision, and the allowlist rejects
+  anything unknown, any instrumented build, and any security-relevant switch.
+- An official build (`is_official_build=true`) needs Google's toolchain, PGO
+  profiles and signing. It is not enabled here and must be a deliberate change.
+- Nothing in the configuration disables the sandbox, site isolation,
+  certificate validation or process isolation. Chromium does not expose
+  supported GN switches for those; they can only be weakened at runtime, which
+  the smoke test records explicitly.
+
+## Build state ladder (never collapse these)
+
+A step in this ladder is only earned by the evidence named next to it. A
+workflow step name is not evidence; its output is.
+
+| State                       | Earned when                                             |
+| --------------------------- | ------------------------------------------------------- |
+| INTEGRATION SOURCE VERIFIED | the patch set applies to the pristine pinned checkout   |
+| CONFIGURATION VERIFIED      | `gn gen` completes                                      |
+| COMPILED                    | `autoninja chrome` completes                            |
+| RUNTIME INTEGRATED          | the browser process launches                            |
+| TESTED                      | the smoke test passes on the packaged staging directory |
+| VERIFIED                    | a physical, supported Windows machine runs the artifact |
+
+## Stage, verify and package the artifact
+
+```bash
+# 1. Stage the complete runtime directory (fails if the browser cannot start).
+node tools/chromium/stage-runtime.mjs \
+  --out <checkout>/out/Release \
+  --dest <artifacts>/staged \
+  --aurelia-revision "$(git rev-parse HEAD)" \
+  --gn-args <checkout>/out/Release/args.gn
+
+# 2. Smoke test the staged browser - the artifact that will be shipped, not the
+#    raw build directory.
+node tools/chromium/smoke-test.mjs --binary <artifacts>/staged/chrome.exe \
+  --report <artifacts>/smoke-test.json
+
+# 3. Record the result in the manifest, then zip the staged directory.
+node tools/chromium/stage-runtime.mjs --dest <artifacts>/staged \
+  --record-smoke-test <artifacts>/smoke-test.json
+```
+
+The artifact is named `aurelia-windows-x64-dev-<aurelia-short-sha>-UNSIGNED.zip`
+and contains the complete browser directory plus `build-manifest.json` and
+`SHA256SUMS.txt`. `signed` and `productionReady` are both `false`: SmartScreen
+will warn about it, and that warning is never bypassed. The manifest records the
+Aurelia revision, Chromium version and revision, patch-set version, pinned
+`depot_tools` revision, OS, architecture, GN arguments, configuration, build
+timestamp, signing state and smoke-test state.
+
+## Runtime compatibility targets (not builders)
+
+The owner has two low-end Windows machines for runtime and compatibility
+testing. They are explicitly **not** Chromium builders:
+
+| Target          | Hardware                                                  | Purpose                                                                 |
+| --------------- | --------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `WIN10_LOW_END` | Intel i3 (4th generation), 8 GB RAM                       | does the artifact start, navigate and stay responsive on a slow machine |
+| `WIN10_LEGACY`  | ThinkPad T530, Intel 3rd-generation mobile CPU, ~6 GB RAM | older-driver and low-memory behaviour                                   |
+
+Results from these machines are what promote a build from TESTED to VERIFIED,
+and they are run by the owner after the artifact is published - never as part of
+the build job.
 
 ## Verify what you built
 
@@ -149,7 +218,7 @@ exists. Feature-level tests live in `tests/` and `docs/TESTING.md`.
 
 - Fast checks (no checkout): `.github/workflows/ci-fast.yml`.
 - Heavy build (self-hosted runner, nightly + manual):
-  `.github/workflows/chromium-heavy-build.yml`. The runner label set is
+  `tools/ci/workflows/chromium-heavy-build-windows.yml`. The runner label set is
   `[self-hosted, linux, x64, aurelia-chromium]`, and the persistent checkout
   directory is the repository variable `AURELIA_CHROMIUM_DEST`.
 - CI security model: `docs/CI-SECURITY.md`.

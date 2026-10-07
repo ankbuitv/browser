@@ -15,7 +15,7 @@
  *  - workflows stay pinned and minimally privileged;
  *  - no obvious credential is committed.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { REPO_ROOT, loadConfig, overlayDir } from '../chromium/lib/config.mjs';
@@ -25,8 +25,9 @@ import {
   collectOverlayFiles,
   verifyOffline,
 } from '../chromium/verify-patches.mjs';
-import { checkWorkflows } from './workflow-policy.mjs';
+import { gnArgFiles, validateGnArgs } from '../chromium/gn-args.mjs';
 import { compareWorkflows } from './install-workflows.mjs';
+import { checkWorkflows } from './workflow-policy.mjs';
 import { scanRepository } from './secret-scan.mjs';
 
 /** File extensions allowed inside the Chromium overlay. */
@@ -158,6 +159,23 @@ export function runFastChecks({ log = console.log } = {}) {
         : missingDocs.join(', '),
     );
   }
+
+  // The reviewed GN arguments are an artefact like any other: every key must be
+  // in the allowlist and every value in its allowed set, or the build would be
+  // configuring something nobody reviewed.
+  const gnFiles = gnArgFiles();
+  const gnProblems = gnFiles.flatMap((file) =>
+    validateGnArgs(readFileSync(file, 'utf8')).problems.map(
+      (problem) => `${path.relative(REPO_ROOT, file)}: ${problem}`,
+    ),
+  );
+  record(
+    'GN argument files pass the reviewed policy',
+    gnProblems.length === 0,
+    gnProblems.length === 0
+      ? `${gnFiles.length} configuration file(s)`
+      : gnProblems.join('; '),
+  );
 
   const workflowPolicy = checkWorkflows();
   record(

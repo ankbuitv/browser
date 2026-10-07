@@ -137,14 +137,14 @@ build before an MVP claim; results are posted in the issue, not assumed.
 
 ## CI mapping
 
-| Level                   | Where                                        | Trigger                        |
-| ----------------------- | -------------------------------------------- | ------------------------------ |
-| 1 Unit tests            | `.github/workflows/ci-fast.yml`              | every push/PR                  |
-| 2 Repository invariants | `.github/workflows/ci-fast.yml`              | every push/PR                  |
-| 3 Patch verification    | `.github/workflows/ci-fast.yml`              | every push/PR                  |
-| 4 Runtime smoke test    | `.github/workflows/chromium-heavy-build.yml` | nightly + manual (self-hosted) |
-| 5 Feature tests         | same as 4, per feature                       | as implemented                 |
-| 6 Privacy/network tests | same as 4                                    | as implemented                 |
+| Level                   | Where                                                 | Trigger                        |
+| ----------------------- | ----------------------------------------------------- | ------------------------------ |
+| 1 Unit tests            | `.github/workflows/ci-fast.yml`                       | every push/PR                  |
+| 2 Repository invariants | `.github/workflows/ci-fast.yml`                       | every push/PR                  |
+| 3 Patch verification    | `.github/workflows/ci-fast.yml`                       | every push/PR                  |
+| 4 Runtime smoke test    | `tools/ci/workflows/chromium-heavy-build-windows.yml` | nightly + manual (self-hosted) |
+| 5 Feature tests         | same as 4, per feature                                | as implemented                 |
+| 6 Privacy/network tests | same as 4                                             | as implemented                 |
 
 ## Coverage expectations
 

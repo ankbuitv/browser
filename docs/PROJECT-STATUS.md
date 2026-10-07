@@ -23,31 +23,31 @@ The distinction exists because "the code is written" is not "the browser works".
 
 ## Current state (2026-10-07)
 
-| Area                                      | State       | Evidence / gap                                                                                             |
-| ----------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------- |
-| Repository audit                          | TESTED      | [REPOSITORY-AUDIT.md](REPOSITORY-AUDIT.md)                                                                 |
-| Chromium pin (exact revision)             | TESTED      | `config/chromium_version.json` validated by unit tests; digests recorded                                   |
-| Patch/overlay mechanism                   | TESTED      | `verify-patches --online` fetches the pinned pre-images, applies the patch, and matches post-image digests |
-| GN wiring strategy                        | SCAFFOLDED  | follows upstream `webui_gallery`; **not compiled**                                                         |
-| Reproducible checkout (`sync.mjs`)        | IMPLEMENTED | never executed against a real Chromium checkout                                                            |
-| Heavy build workflow                      | IMPLEMENTED | never executed; a self-hosted builder does not exist yet                                                   |
-| `chrome://aurelia` WebUI (C++)            | SCAFFOLDED  | code written, **not compiled**                                                                             |
-| Aurelia WebUI resources (TS/CSS)          | SCAFFOLDED  | code written, **not compiled, never rendered**                                                             |
-| Design tokens pipeline                    | TESTED      | generator + freshness checks in CI                                                                         |
-| Omnibox classification policy             | IMPLEMENTED | 31 unit tests                                                                                              |
-| Secure DNS policy                         | IMPLEMENTED | 19 unit tests                                                                                              |
-| Tracking-parameter stripping              | IMPLEMENTED | 23 unit tests                                                                                              |
-| Preference schema and invariants          | IMPLEMENTED | 33 unit tests                                                                                              |
-| Fast CI                                   | TESTED      | workflows written; first run pending                                                                       |
-| Supply-chain policy + secret scan         | TESTED      | repository tests                                                                                           |
-| Ad/tracker blocking                       | NOT STARTED | design only (M3)                                                                                           |
-| Browser shell UI (tabs, omnibox, palette) | NOT STARTED | M1                                                                                                         |
-| Sync                                      | SCAFFOLDED  | architecture + threat model only; nothing syncs                                                            |
-| Password manager                          | NOT STARTED | threat model written                                                                                       |
-| Installer                                 | NOT STARTED | design notes only (M8)                                                                                     |
-| Translation                               | NOT STARTED | policy defined (opt-in, provider abstraction)                                                              |
-| Enterprise policy                         | NOT STARTED | M7                                                                                                         |
-| Mobile                                    | NOT STARTED | architecture notes only                                                                                    |
+| Area                                      | State       | Evidence / gap                                                                                                                                            |
+| ----------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository audit                          | TESTED      | [REPOSITORY-AUDIT.md](REPOSITORY-AUDIT.md)                                                                                                                |
+| Chromium pin (exact revision)             | TESTED      | `config/chromium_version.json` validated by unit tests; digests recorded                                                                                  |
+| Patch/overlay mechanism                   | TESTED      | `verify-patches --online` fetches the pinned pre-images, applies the patch, and matches post-image digests                                                |
+| GN wiring strategy                        | SCAFFOLDED  | follows upstream `webui_gallery`; **not compiled**                                                                                                        |
+| Reproducible checkout (`sync.mjs`)        | IMPLEMENTED | never executed against a real Chromium checkout                                                                                                           |
+| Windows x64 heavy build workflow          | IMPLEMENTED | authored end-to-end (probe, sync, patches, `gn gen`, build, stage, smoke test, package); never executed; a self-hosted Windows builder does not exist yet |
+| `chrome://aurelia` WebUI (C++)            | SCAFFOLDED  | code written, **not compiled**                                                                                                                            |
+| Aurelia WebUI resources (TS/CSS)          | SCAFFOLDED  | code written, **not compiled, never rendered**                                                                                                            |
+| Design tokens pipeline                    | TESTED      | generator + freshness checks in CI                                                                                                                        |
+| Omnibox classification policy             | IMPLEMENTED | 31 unit tests                                                                                                                                             |
+| Secure DNS policy                         | IMPLEMENTED | 19 unit tests                                                                                                                                             |
+| Tracking-parameter stripping              | IMPLEMENTED | 23 unit tests                                                                                                                                             |
+| Preference schema and invariants          | IMPLEMENTED | 33 unit tests                                                                                                                                             |
+| Fast CI                                   | TESTED      | workflows written; first run pending                                                                                                                      |
+| Supply-chain policy + secret scan         | TESTED      | repository tests                                                                                                                                          |
+| Ad/tracker blocking                       | NOT STARTED | design only (M3)                                                                                                                                          |
+| Browser shell UI (tabs, omnibox, palette) | NOT STARTED | M1                                                                                                                                                        |
+| Sync                                      | SCAFFOLDED  | architecture + threat model only; nothing syncs                                                                                                           |
+| Password manager                          | NOT STARTED | threat model written                                                                                                                                      |
+| Installer                                 | NOT STARTED | design notes only (M8)                                                                                                                                    |
+| Translation                               | NOT STARTED | policy defined (opt-in, provider abstraction)                                                                                                             |
+| Enterprise policy                         | NOT STARTED | M7                                                                                                                                                        |
+| Mobile                                    | NOT STARTED | architecture notes only                                                                                                                                   |
 
 ## Truthfulness rules
 

@@ -1,0 +1,52 @@
+# Aurelia Browser - Windows x64 development build arguments.
+#
+# This is the reviewed GN argument set for the first real build target:
+# Windows 10/11 x64. tools/chromium/gn-args.mjs enforces that every key and
+# value below is on the allowlist, and the heavy-build workflow records the
+# *effective* arguments (out/Release/args.gn) in build-manifest.json.
+#
+# Rules for editing this file:
+#   1. every key must exist in Chromium at the pinned revision and be listed in
+#      the allowlist in tools/chromium/gn-args.mjs - no invented arguments;
+#   2. no argument may disable the sandbox, site isolation, certificate
+#      validation or normal process isolation for a product build;
+#   3. instrumented builds (is_asan / is_msan / is_tsan / is_ubsan) are not
+#      product builds and are rejected;
+#   4. every entry needs a reason, and the list stays as short as possible.
+
+# Development Release: optimised enough to be usable, no debug assertions, and
+# no PGO/profile step that would require Google's official build infrastructure.
+is_debug = false
+is_official_build = false
+
+# Component builds link far faster and are the documented choice for iterating
+# on a development build. The packaged artifact therefore contains the DLL set
+# the build produces, not the single chrome.dll of an official build.
+is_component_build = true
+
+# Line tables without full debug information: crash stacks stay useful while the
+# artifact stays small enough to package and upload.
+symbol_level = 1
+
+# Chromium's warnings are upstream's contract, not Aurelia's: a warning in
+# Chromium code must not fail an Aurelia build.
+treat_warnings_as_errors = false
+
+# First target platform.
+target_cpu = "x64"
+
+# Deliberately NOT enabled in the development build, and why:
+#
+#   proprietary_codecs = true / ffmpeg_branding = "Chrome"
+#       Product decision with licensing consequences (H.264/AAC playback). It is
+#       tracked as an open question instead of being smuggled in here.
+#
+#   is_official_build = true
+#       Requires Google's internal toolchain, PGO profiles and a signing setup
+#       that does not exist for this project yet.
+#
+# The sandbox, site isolation, certificate validation and process isolation are
+# not configuration switches in Chromium's GN graph: they are always compiled
+# in for chrome. They can only be weakened at runtime, which is why
+# tools/chromium/smoke-test.mjs records the sandbox mode explicitly and refuses
+# --no-sandbox unless it is acknowledged as non-product-equivalent.

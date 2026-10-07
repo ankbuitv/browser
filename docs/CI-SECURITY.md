@@ -47,11 +47,11 @@ threats, the controls, and what is deliberately not automated.
 > without `--force`, and `fast-checks.mjs` verifies that any installed copy is
 > byte-identical. That way CI cannot drift away from the reviewed definitions.
 
-| Workflow                    | Trigger                    | Runner          | Permissions                       | Purpose                                                                                          |
-| --------------------------- | -------------------------- | --------------- | --------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `ci-fast.yml`               | push, pull_request, manual | GitHub-hosted   | `contents: read`                  | Format, lint, typecheck, unit tests, repository checks, online patch verification, update report |
-| `chromium-heavy-build.yml`  | schedule (nightly), manual | **self-hosted** | `contents: read`                  | Sync pinned tree, install overlay, build, smoke test, upload build report                        |
-| `chromium-update-watch.yml` | schedule (daily), manual   | GitHub-hosted   | `contents: read`, `issues: write` | Detect a newer Chromium build and open an issue                                                  |
+| Workflow                           | Trigger                    | Runner                                                            | Permissions                       | Purpose                                                                                                                                                                          |
+| ---------------------------------- | -------------------------- | ----------------------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci-fast.yml`                      | push, pull_request, manual | GitHub-hosted                                                     | `contents: read`                  | Format, lint, typecheck, unit tests, repository checks, online patch verification, update report                                                                                 |
+| `chromium-heavy-build-windows.yml` | schedule (nightly), manual | **self-hosted** (`[self-hosted, windows, x64, aurelia-chromium]`) | `contents: read`                  | Capability probe, sync pinned tree, verify patches, install overlay, fork-delta check, `gn gen`, build, stage runtime, sandboxed smoke test, package unsigned artifact + reports |
+| `chromium-update-watch.yml`        | schedule (daily), manual   | GitHub-hosted                                                     | `contents: read`, `issues: write` | Detect a newer Chromium build and open an issue                                                                                                                                  |
 
 ## Supply-chain rules for downloaded sources and tools
 

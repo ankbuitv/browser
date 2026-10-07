@@ -122,7 +122,7 @@ A patch is accepted only if it:
 Never merge a Chromium update directly into `main`.
 
 ```
-1. DETECT      .github/workflows/chromium-update-watch.yml (daily) or
+1. DETECT      tools/ci/workflows/chromium-update-watch.yml (daily) or
                node tools/chromium/cli.mjs check-updates
                -> opens/updates an issue titled
                   "chore(chromium): evaluate update to <version>"
@@ -137,7 +137,7 @@ Never merge a Chromium update directly into `main`.
                signal a human must rebase the edit by hand)
 5. VERIFY      node tools/chromium/cli.mjs verify-patches --online
                Both the pre-image and post-image digests must match.
-6. BUILD       Run .github/workflows/chromium-heavy-build.yml on the self-hosted
+6. BUILD       Run tools/ci/workflows/chromium-heavy-build-windows.yml on the self-hosted
                builder. Attach the build report and smoke-test output to the issue.
 7. DOCUMENT    Update docs/FORK-DELTA.md (numbers come from
                `node tools/chromium/cli.mjs fork-delta --json`).

@@ -36,7 +36,7 @@ describe('workflow deployment', () => {
   it('ships canonical definitions in tools/ci/workflows', () => {
     const { workflows } = compareWorkflows({ sourceDir: CANONICAL_DIR });
     expect(workflows).toEqual([
-      'chromium-heavy-build.yml',
+      'chromium-heavy-build-windows.yml',
       'chromium-update-watch.yml',
       'ci-fast.yml',
     ]);
@@ -89,5 +89,61 @@ describe('workflow deployment', () => {
       destDir,
     });
     expect(result).toEqual({ workflows: [], missing: [], different: [] });
+  });
+});
+
+describe('Windows heavy build pipeline', () => {
+  const read = () =>
+    readFileSync(
+      path.join(CANONICAL_DIR, 'chromium-heavy-build-windows.yml'),
+      'utf8',
+    );
+
+  it('runs only on a self-hosted Windows x64 builder', () => {
+    const workflow = read();
+    expect(workflow).toContain(
+      'runs-on: [self-hosted, windows, x64, aurelia-chromium]',
+    );
+    // Hosted runners must not be attempted: the assessment says they are not
+    // a suitable Chromium builder (docs/CI-BUILD-FEASIBILITY.md).
+    expect(workflow).not.toContain('windows-latest');
+    expect(workflow).not.toContain('ubuntu-latest');
+  });
+
+  it('keeps the owner-specified pipeline stages in order', () => {
+    const workflow = read();
+    const stages = [
+      'actions/checkout@',
+      'Set up Node.js',
+      'sync.mjs --dest',
+      'verify-patches --checkout',
+      'install-overlay.mjs --checkout',
+      'fork-delta --check',
+      'gn-args.mjs',
+      'gn gen out\\Release',
+      'autoninja -C out\\Release chrome',
+      'stage-runtime.mjs --out',
+      'smoke-test.mjs --binary',
+      'record-smoke-test',
+      'CreateFromDirectory',
+      'actions/upload-artifact@',
+    ];
+    let cursor = -1;
+    for (const stage of stages) {
+      // Search after the previous match so a stage mentioned in the header
+      // comment cannot satisfy the check for the step itself.
+      const index = workflow.indexOf(stage, cursor + 1);
+      expect(index, `missing pipeline stage: ${stage}`).toBeGreaterThan(-1);
+      expect(index, `stage out of order: ${stage}`).toBeGreaterThan(cursor);
+      cursor = index;
+    }
+  });
+
+  it('never weakens the browser to make CI pass', () => {
+    const workflow = read();
+    expect(workflow).not.toContain('--no-sandbox');
+    expect(workflow).not.toContain('--allow-disabled-sandbox');
+    expect(workflow).not.toContain('secrets.');
+    expect(workflow).toContain('permissions:\n  contents: read');
   });
 });

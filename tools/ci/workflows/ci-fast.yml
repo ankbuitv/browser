@@ -4,7 +4,7 @@
 # types, unit tests, patch verification, supply-chain policy and secret scanning
 # all run here in a few minutes on a GitHub-hosted runner.
 #
-# Chromium compilation happens in chromium-heavy-build.yml on a self-hosted
+# Chromium compilation happens in chromium-heavy-build-windows.yml on a self-hosted
 # runner; it is not attempted here on purpose (see docs/BUILDING-CHROMIUM.md for
 # measured resource requirements).
 name: CI (fast)
