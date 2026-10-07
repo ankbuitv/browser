@@ -11,28 +11,24 @@ automation credential cannot create workflow_dispatch events:
 Removed again once the run has FINISHED - not while it is in flight, because
 editing the workflow's trigger set cancels the run that is flying.
 
-Run 7
+Run 8
 -----
-Run 1: died in 30 s on two measurement bugs.
-Run 2: reached the sync, failed after ~18 min, could not say why.
-Run 3: cancelled by the commit that retired this trigger mid-flight.
-Run 4: died in 1 s on a `gclient` that did not exist yet.
-Run 5: the sync finished in an hour, then the DEPS hook that downloads the
-  pinned Visual Studio toolchain failed - with nothing left to retry with.
-Run 6: the constrained sync finished in 19 minutes. The toolchain hook then
-  said, in plain terms:
+Runs 1-4 died on bugs in this repository's own workflow code.
+Run 5: sync finished, then the toolchain hook died with the step's budget
+  already spent.
+Run 6: sync finished in 19 min; the toolchain hook said the packaged
+  Chromium toolchain lives in a Google Cloud bucket that refuses anonymous
+  callers, so DEPOT_TOOLS_WIN_TOOLCHAIN=0 is the only setting that can work.
+Run 7: sync 15 min, DEPS hooks green for the first time - and then
+  verify-patches failed in seven seconds. The same patch set verifies
+  cleanly here through the upstream API, so the difference is the machine:
+  docs/windows_build_instructions.md at the pinned revision asks for
+  core.autocrlf=false, core.filemode=false and core.longpaths=true before
+  fetching, and this workflow has never set any of them. Verification
+  digests upstream blobs read with `git show`, so any line-ending
+  conversion between the blob and the recorded pre-image fails it on
+  Windows only.
 
-    401 Anonymous caller does not have storage.objects.list access to the
-    Google Cloud Storage bucket ... chrome-wintoolchain
-    No downloadable toolchain found. In order to use your locally installed
-    version of Visual Studio to build Chrome please set
-    DEPOT_TOOLS_WIN_TOOLCHAIN=0.
-
-  Chromium's packaged Windows toolchain is Google-internal (depot_tools'
-  win_toolchain README: "requires authentication with @google.com
-  credentials"), so DEPOT_TOOLS_WIN_TOOLCHAIN=1 was never going to work here.
-
-This run builds with the Visual Studio on the image instead, and installs the
-one Windows SDK the pin demands - 10.0.28000.0, read out of the checkout
-rather than hard-coded - because the image carries 10.0.26100.0 and
-setup_toolchain.py asks vcvarsall.bat for the pinned version by name.
+This run sets that git configuration the way the pinned Chromium asks for
+it, and publishes the tail of every stage that can fail - the patch
+verification report, the overlay, gn gen - instead of only the sync.

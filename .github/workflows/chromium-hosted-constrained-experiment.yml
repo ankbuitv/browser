@@ -135,6 +135,35 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Configure git the way the pinned Chromium requires on Windows
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          # docs/windows_build_instructions.md at the pinned revision asks for
+          # exactly this before fetching, and it is not cosmetic: the patch
+          # verification reads upstream blobs with `git show` and digests them
+          # against pre-images recorded from the upstream API. Any line-ending
+          # conversion between the two changes the bytes and fails the check,
+          # on Windows only - which is what run 7 did, in seven seconds, while
+          # the same patch set verified cleanly through the API.
+          #
+          # core.longpaths also matters for Chromium's own directory depth.
+          $settings = [ordered]@{
+            'core.autocrlf'     = 'false'
+            'core.filemode'     = 'false'
+            'core.preloadindex' = 'true'
+            'core.fscache'      = 'true'
+            'core.longpaths'    = 'true'
+          }
+          foreach ($name in $settings.Keys) {
+            & git config --global $name $settings[$name]
+            if ($LASTEXITCODE -ne 0) { throw "git config --global $name failed (exit $LASTEXITCODE)" }
+          }
+          $shown = @($settings.Keys | ForEach-Object { "$_=$( & git config --global $_ )" })
+          Write-Host "::notice title=git configuration::$($shown -join '; ')"
+
       - name: Measure the runner and choose the build volume
         id: measure
         shell: pwsh
@@ -724,6 +753,17 @@ jobs:
           $presentAfter = Test-Path $sdkInclude
           if (-not $presentAfter) {
             Write-Host "::error title=Windows SDK::$sdkVersion is still absent after the install attempt; setup_toolchain.py asks vcvarsall.bat for it by name, so gn gen is expected to fail"
+            # Why did the installer refuse? Not guessing: the Visual Studio
+            # installer writes its own log next to the bootstrapper's.
+            . .\tools\ci\publish-log-tail.ps1
+            foreach ($log in @('artifacts/logs/sdk-install.err.log', 'artifacts/logs/sdk-install.out.log')) {
+              Publish-LogTail -Path $log -Title "SDK install: $(Split-Path $log -Leaf)"
+            }
+            $dd = @(Get-ChildItem -Path $env:TEMP -Filter 'dd_*.log' -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending | Select-Object -First 2)
+            foreach ($log in $dd) {
+              Publish-LogTail -Path $log.FullName -Title "VS installer: $($log.Name)"
+            }
           } else {
             Write-Host "::notice title=Windows SDK::$sdkVersion present after the install attempt"
           }
@@ -817,7 +857,14 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
           node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only verify-patches --log-dir artifacts/logs
-          if ($LASTEXITCODE -ne 0) { throw "the patch set did not verify against the pinned revision (exit $LASTEXITCODE)" }
+          if ($LASTEXITCODE -ne 0) {
+            # A failed check is one line in a report of a dozen; without the
+            # tail the run can say "the patches did not verify" and nothing
+            # else, which is what run 7 did.
+            . .\tools\ci\publish-log-tail.ps1
+            Publish-LogTail -Path 'artifacts/logs/verify-patches.log' -Title 'patch set did not verify'
+            throw "the patch set did not verify against the pinned revision (exit $LASTEXITCODE)"
+          }
 
       - name: Install the overlay, apply the patch series, check the fork delta
         id: overlay
@@ -828,7 +875,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
           node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only install-overlay,fork-delta --log-dir artifacts/logs
-          if ($LASTEXITCODE -ne 0) { throw "the overlay, patch series or delta budget failed (exit $LASTEXITCODE)" }
+          if ($LASTEXITCODE -ne 0) {
+            . .\tools\ci\publish-log-tail.ps1
+            Publish-LogTail -Path 'artifacts/logs/install-overlay.log' -Title 'overlay or patch series failed'
+            Publish-LogTail -Path 'artifacts/logs/fork-delta.log' -Title 'fork delta budget failed'
+            throw "the overlay, patch series or delta budget failed (exit $LASTEXITCODE)"
+          }
 
       - name: gn gen with the reviewed low-resource arguments
         id: gn-gen
@@ -840,7 +892,11 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           $env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
           node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only gn-args,gn-gen --log-dir artifacts/logs
-          if ($LASTEXITCODE -ne 0) { throw "gn gen failed (exit $LASTEXITCODE)" }
+          if ($LASTEXITCODE -ne 0) {
+            . .\tools\ci\publish-log-tail.ps1
+            Publish-LogTail -Path 'artifacts/logs/gn.log' -Title 'gn gen failed'
+            throw "gn gen failed (exit $LASTEXITCODE)"
+          }
           $argsFile = Join-Path $env:AURELIA_CHROMIUM_DEST 'src/out/Release/args.gn'
           if (Test-Path $argsFile) {
             Copy-Item $argsFile 'artifacts/args-effective.gn'
