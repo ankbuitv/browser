@@ -433,9 +433,9 @@ describe('hosted constrained experiment', () => {
     const workflow = read();
     const stages = [
       'sync.mjs --dest',
-      '--only verify-patches',
-      '--only install-overlay,fork-delta',
-      '--only gn-args,gn-gen',
+      "'--only', 'verify-patches'",
+      "'--only', 'install-overlay,fork-delta'",
+      "'--only', 'gn-args,gn-gen'",
       "'--only', 'compile',",
       '--only stage,smoke-test,record,package',
       'actions/upload-artifact@',

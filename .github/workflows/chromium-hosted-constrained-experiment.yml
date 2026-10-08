@@ -876,17 +876,36 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
-          # build.mjs writes the command it ran into its own log and streams
-          # everything the tool printed to the console - which is exactly the
-          # output this run cannot read. Tee it, so a failing check is a line
-          # in a file instead of an exit code in an unreachable log.
-          node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only verify-patches --log-dir artifacts/logs 2>&1 | Tee-Object -FilePath 'artifacts/logs/verify-patches.console.log'
-          if ($LASTEXITCODE -ne 0) {
+          # A pipeline (`node ... 2>&1 | Tee-Object`) does not survive this
+          # step's own error handling: in PowerShell 7 the merged stderr of a
+          # native command becomes an error record, and with
+          # $ErrorActionPreference='Stop' the first line the tool writes to
+          # stderr terminates the pipeline before the exit code is ever
+          # examined - so a failing stage published nothing at all, which is
+          # what run 10 did. Start-Process with redirection is how this
+          # workflow already runs the compile, and it has no such trap.
+          $logOut = 'artifacts/logs/verify-patches.out.log'
+          $logErr = 'artifacts/logs/verify-patches.err.log'
+          $proc = Start-Process -FilePath 'node' -PassThru -NoNewWindow -Wait `
+            -WorkingDirectory (Get-Location) `
+            -ArgumentList @(
+              'tools/chromium/build.mjs',
+              '--dest', "$env:AURELIA_CHROMIUM_DEST",
+              '--profile', 'low-resource',
+              '--jobs', "$env:EXPERIMENT_JOBS",
+              '--skip-sync',
+              '--only', 'verify-patches',
+              '--log-dir', (Join-Path (Get-Location) 'artifacts/logs')
+            ) `
+            -RedirectStandardOutput $logOut `
+            -RedirectStandardError  $logErr
+          if ($proc.ExitCode -ne 0) {
             . .\tools\ci\publish-log-tail.ps1
-            Publish-LogTail -Path 'artifacts/logs/verify-patches.console.log' -Title 'patch set did not verify'
-            Publish-LogTail -Path 'artifacts/logs/verify-patches.log' -Title 'verify-patches command'
-            throw "the patch set did not verify against the pinned revision (exit $LASTEXITCODE)"
+            Publish-LogTail -Path $logErr -Title 'patch verification failed (stderr)'
+            Publish-LogTail -Path $logOut -Title 'patch verification failed (stdout)'
+            throw "patch verification failed (exit $($proc.ExitCode))"
           }
+          Add-Content $env:GITHUB_STEP_SUMMARY '- patch set verified against the pinned revision'
 
       - name: Install the overlay, apply the patch series, check the fork delta
         id: overlay
@@ -896,11 +915,34 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
-          node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only install-overlay,fork-delta --log-dir artifacts/logs 2>&1 | Tee-Object -FilePath 'artifacts/logs/overlay.console.log'
-          if ($LASTEXITCODE -ne 0) {
+          # A pipeline (`node ... 2>&1 | Tee-Object`) does not survive this
+          # step's own error handling: in PowerShell 7 the merged stderr of a
+          # native command becomes an error record, and with
+          # $ErrorActionPreference='Stop' the first line the tool writes to
+          # stderr terminates the pipeline before the exit code is ever
+          # examined - so a failing stage published nothing at all, which is
+          # what run 10 did. Start-Process with redirection is how this
+          # workflow already runs the compile, and it has no such trap.
+          $logOut = 'artifacts/logs/overlay.out.log'
+          $logErr = 'artifacts/logs/overlay.err.log'
+          $proc = Start-Process -FilePath 'node' -PassThru -NoNewWindow -Wait `
+            -WorkingDirectory (Get-Location) `
+            -ArgumentList @(
+              'tools/chromium/build.mjs',
+              '--dest', "$env:AURELIA_CHROMIUM_DEST",
+              '--profile', 'low-resource',
+              '--jobs', "$env:EXPERIMENT_JOBS",
+              '--skip-sync',
+              '--only', 'install-overlay,fork-delta',
+              '--log-dir', (Join-Path (Get-Location) 'artifacts/logs')
+            ) `
+            -RedirectStandardOutput $logOut `
+            -RedirectStandardError  $logErr
+          if ($proc.ExitCode -ne 0) {
             . .\tools\ci\publish-log-tail.ps1
-            Publish-LogTail -Path 'artifacts/logs/overlay.console.log' -Title 'overlay or patch series failed'
-            throw "the overlay, patch series or delta budget failed (exit $LASTEXITCODE)"
+            Publish-LogTail -Path $logErr -Title 'overlay and patch series failed (stderr)'
+            Publish-LogTail -Path $logOut -Title 'overlay and patch series failed (stdout)'
+            throw "overlay and patch series failed (exit $($proc.ExitCode))"
           }
 
       - name: gn gen with the reviewed low-resource arguments
@@ -912,13 +954,37 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
           $env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
-          node tools/chromium/build.mjs --dest "$env:AURELIA_CHROMIUM_DEST" --profile low-resource --jobs "$env:EXPERIMENT_JOBS" --skip-sync --only gn-args,gn-gen --log-dir artifacts/logs 2>&1 | Tee-Object -FilePath 'artifacts/logs/gn.console.log'
-          if ($LASTEXITCODE -ne 0) {
+          # A pipeline (`node ... 2>&1 | Tee-Object`) does not survive this
+          # step's own error handling: in PowerShell 7 the merged stderr of a
+          # native command becomes an error record, and with
+          # $ErrorActionPreference='Stop' the first line the tool writes to
+          # stderr terminates the pipeline before the exit code is ever
+          # examined - so a failing stage published nothing at all, which is
+          # what run 10 did. Start-Process with redirection is how this
+          # workflow already runs the compile, and it has no such trap.
+          $logOut = 'artifacts/logs/gn.out.log'
+          $logErr = 'artifacts/logs/gn.err.log'
+          $proc = Start-Process -FilePath 'node' -PassThru -NoNewWindow -Wait `
+            -WorkingDirectory (Get-Location) `
+            -ArgumentList @(
+              'tools/chromium/build.mjs',
+              '--dest', "$env:AURELIA_CHROMIUM_DEST",
+              '--profile', 'low-resource',
+              '--jobs', "$env:EXPERIMENT_JOBS",
+              '--skip-sync',
+              '--only', 'gn-args,gn-gen',
+              '--log-dir', (Join-Path (Get-Location) 'artifacts/logs')
+            ) `
+            -RedirectStandardOutput $logOut `
+            -RedirectStandardError  $logErr
+          if ($proc.ExitCode -ne 0) {
             . .\tools\ci\publish-log-tail.ps1
-            Publish-LogTail -Path 'artifacts/logs/gn.console.log' -Title 'gn gen failed'
-            Publish-LogTail -Path 'artifacts/logs/gn.log' -Title 'gn gen command'
-            throw "gn gen failed (exit $LASTEXITCODE)"
+            Publish-LogTail -Path $logErr -Title 'gn gen failed (stderr)'
+            Publish-LogTail -Path $logOut -Title 'gn gen failed (stdout)'
+            throw "gn gen failed (exit $($proc.ExitCode))"
           }
+          Publish-LogTail -Path 'artifacts/logs/gn.log' -Title 'gn gen command' -ErrorAction SilentlyContinue
+
           $argsFile = Join-Path $env:AURELIA_CHROMIUM_DEST 'src/out/Release/args.gn'
           if (Test-Path $argsFile) {
             Copy-Item $argsFile 'artifacts/args-effective.gn'
@@ -1142,6 +1208,22 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
+          # This step exists to say what happened. A bug inside it that kills
+          # the step silently leaves the run with no classification at all,
+          # which is strictly worse than the failure it was reporting - run 10
+          # ended exactly that way, with the verdict blank. trap fires for any
+          # terminating error in this scope, so the report can die loudly and
+          # still publish the reason.
+          trap {
+            $text = [string]$_.Exception.Message
+            $text = ($text -replace '%', '%25' -replace "`r", ' ' -replace "`n", ' ')
+            if ($text.Length -gt 480) { $text = $text.Substring(0, 480) }
+            Write-Host "::error title=Evidence step failed::$text"
+            $line = ([string]$_.InvocationInfo.Line).Trim() -replace '%', '%25'
+            if ($line.Length -gt 300) { $line = $line.Substring(0, 300) }
+            Write-Host "::error title=Evidence failed at::line $($_.InvocationInfo.ScriptLineNumber): $line"
+            break
+          }
           New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
           $workspace = (Get-Location).Path
           $dest = $env:AURELIA_CHROMIUM_DEST

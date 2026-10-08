@@ -11,28 +11,26 @@ automation credential cannot create workflow_dispatch events:
 Removed again once the run has FINISHED - not while it is in flight, because
 editing the workflow's trigger set cancels the run that is flying.
 
-Run 10
+Run 11
 ------
 Runs 1-4: bugs in this repository's own workflow code.
 Run 5: sync finished, toolchain hook died with the budget already spent.
 Run 6: the packaged Chromium toolchain lives in a Google Cloud bucket that
   refuses anonymous callers, so DEPOT_TOOLS_WIN_TOOLCHAIN=0 is forced.
-Runs 7-8: verify-patches failed, and the run could not say why: build.mjs
-  writes only the command it ran into its stage log and streams the tool's
-  real output to the console, which is the one thing this environment
-  cannot read.
-Run 9: with that output teed into a file, the answer arrived in one line:
+Runs 7-8: verify-patches failed silently; build.mjs streams a tool's real
+  output to the console, which is the one thing this environment cannot read.
+Run 9: with that output teed to a file, the cause was one line - the patch
+  files were being checked out with CRLF, so they matched neither their
+  recorded digest nor the unified-diff grammar.
+Run 10: sync 15 min, SDK 10.0.28000.0 installed via winget, hooks green,
+  patch set verified, overlay installed - and then gn gen failed in 27 s
+  and said nothing at all.
 
-    FAIL 0001-aurelia-webui-and-resources.patch: parses as a unified diff
-    unexpected content before first file header:
-      "diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn\r"
-
-  The patch files are byte-exact artefacts - each carries the sha256 of its
-  own bytes, and verification recomputes it - and actions/checkout was
-  handing them over with CRLF. Two things fix it: the git configuration now
-  happens before the checkout instead of after it, and .gitattributes pins
-  those paths to LF on every platform.
-
-  Run 9 also proved two things that had been guesses: the git-transport
-  pre-image check passes against a real shallow checkout, and winget installs
-  the pinned SDK 10.0.28000.0 that the Visual Studio installer would not add.
+The silence has a cause, and it is this workflow's own error handling. The
+stage ran as `node ... 2>&1 | Tee-Object` under
+$ErrorActionPreference='Stop', and a native command's merged stderr under
+that preference ends the pipeline before the exit code is examined - so the
+block that publishes the log never ran. Those stages now use Start-Process
+with redirection, which is how the compile stage has run all along. The
+evidence step gained a trap, so it can no longer die and leave the verdict
+blank.
