@@ -863,7 +863,8 @@ jobs:
           $toolchainJson = Join-Path $env:AURELIA_CHROMIUM_DEST 'src/build/win_toolchain.json'
           if (Test-Path $toolchainJson) {
             Copy-Item $toolchainJson 'artifacts/'
-            Add-Content $env:GITHUB_STEP_SUMMARY "- win_toolchain.json: ``$(Get-Content $toolchainJson -Raw -replace '\s+', ' ')``"
+            $toolchainText = ((Get-Content $toolchainJson -Raw) -replace '\s+', ' ').Trim()
+            Add-Content $env:GITHUB_STEP_SUMMARY "- win_toolchain.json: ``$toolchainText``"
           } else {
             Write-Host '::notice title=DEPS hooks::no src/build/win_toolchain.json: DEPOT_TOOLS_WIN_TOOLCHAIN=0 uses the Visual Studio on the image, which writes nothing for gn to read back'
           }
@@ -983,12 +984,12 @@ jobs:
             Publish-LogTail -Path $logOut -Title 'gn gen failed (stdout)'
             throw "gn gen failed (exit $($proc.ExitCode))"
           }
-          Publish-LogTail -Path 'artifacts/logs/gn.log' -Title 'gn gen command' -ErrorAction SilentlyContinue
 
           $argsFile = Join-Path $env:AURELIA_CHROMIUM_DEST 'src/out/Release/args.gn'
           if (Test-Path $argsFile) {
             Copy-Item $argsFile 'artifacts/args-effective.gn'
-            Add-Content $env:GITHUB_STEP_SUMMARY "- effective args: ``$(Get-Content $argsFile -Raw -replace '\s+', ' ')``"
+            $argsText = ((Get-Content $argsFile -Raw) -replace '\s+', ' ').Trim()
+            Add-Content $env:GITHUB_STEP_SUMMARY "- effective args: ``$argsText``"
           }
 
       - name: Count the build graph before compiling
@@ -1377,9 +1378,9 @@ jobs:
           }
           $effectiveArgs = $null
           if (Test-Path (Join-Path $src 'out/Release/args.gn')) {
-            $effectiveArgs = (Get-Content (Join-Path $src 'out/Release/args.gn') -Raw -replace '\s+', ' ').Trim()
+            $effectiveArgs = ((Get-Content (Join-Path $src 'out/Release/args.gn') -Raw) -replace '\s+', ' ').Trim()
           } elseif (Test-Path 'artifacts/args-effective.gn') {
-            $effectiveArgs = (Get-Content 'artifacts/args-effective.gn' -Raw -replace '\s+', ' ').Trim()
+            $effectiveArgs = ((Get-Content 'artifacts/args-effective.gn' -Raw) -replace '\s+', ' ').Trim()
           }
 
           $evidence = [ordered]@{

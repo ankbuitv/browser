@@ -11,26 +11,26 @@ automation credential cannot create workflow_dispatch events:
 Removed again once the run has FINISHED - not while it is in flight, because
 editing the workflow's trigger set cancels the run that is flying.
 
-Run 11
+Run 12
 ------
-Runs 1-4: bugs in this repository's own workflow code.
-Run 5: sync finished, toolchain hook died with the budget already spent.
-Run 6: the packaged Chromium toolchain lives in a Google Cloud bucket that
-  refuses anonymous callers, so DEPOT_TOOLS_WIN_TOOLCHAIN=0 is forced.
-Runs 7-8: verify-patches failed silently; build.mjs streams a tool's real
-  output to the console, which is the one thing this environment cannot read.
-Run 9: with that output teed to a file, the cause was one line - the patch
-  files were being checked out with CRLF, so they matched neither their
-  recorded digest nor the unified-diff grammar.
-Run 10: sync 15 min, SDK 10.0.28000.0 installed via winget, hooks green,
-  patch set verified, overlay installed - and then gn gen failed in 27 s
-  and said nothing at all.
+Runs 1-6: bugs in this repository's own workflow code, ending with the
+  discovery that Chromium's packaged Windows toolchain lives in a Google
+  Cloud bucket that refuses anonymous callers.
+Runs 7-9: the patch set was being checked out with CRLF, so it matched
+  neither its recorded digest nor the unified-diff grammar.
+Run 10: sync 15 min, pinned SDK installed, hooks green, patches verified,
+  overlay in - and two silent failures.
+Run 11: the trap added after run 10 found both of them, in one line each:
 
-The silence has a cause, and it is this workflow's own error handling. The
-stage ran as `node ... 2>&1 | Tee-Object` under
-$ErrorActionPreference='Stop', and a native command's merged stderr under
-that preference ends the pipeline before the exit code is examined - so the
-block that publishes the log never ran. Those stages now use Start-Process
-with redirection, which is how the compile stage has run all along. The
-evidence step gained a trap, so it can no longer die and leave the verdict
-blank.
+    Evidence step failed: A parameter cannot be found that matches
+    parameter name 'replace'.
+    line 173: $effectiveArgs = (Get-Content (...) -Raw -replace ...)
+
+  `Get-Content -Raw -replace a,b` parses -replace as a parameter of
+  Get-Content. The second was a stray Publish-LogTail call passing
+  -ErrorAction, which a plain function does not accept. Both were mistakes
+  made while instrumenting these runs, not Chromium's doing - and both were
+  reported as if the build had failed. gn gen had in fact succeeded, which
+  is why src/out/Release/args.gn was there for the evidence step to read.
+
+This run should reach the compile.
