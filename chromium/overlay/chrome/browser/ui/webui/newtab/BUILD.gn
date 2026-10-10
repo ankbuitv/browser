@@ -1,0 +1,24 @@
+# Copyright 2026 The Aurelia Authors
+# Use of this source code is governed by the Mozilla Public License, v. 2.0,
+# that can be found in the LICENSE file at the repository root.
+
+assert(!is_android)
+
+source_set("newtab") {
+  sources = [ "newtab_ui.cc" ]
+  public = [ "newtab_ui.h" ]
+
+  public_deps = [ "//chrome/browser:browser_public_dependencies" ]
+  allow_circular_includes_from =
+      [ "//chrome/browser:browser_public_dependencies" ]
+
+  deps = [
+    "//base",
+    "//chrome/browser/profiles:profile",
+    "//chrome/browser/resources/newtab:resources",
+    "//chrome/common",
+    "//content/public/browser",
+    "//services/network/public/mojom",
+    "//ui/webui",
+  ]
+}

@@ -32,6 +32,10 @@ const OUTPUTS = {
       REPO_ROOT,
       'chromium/overlay/chrome/browser/resources/aurelia/design_tokens.css',
     ),
+    path.join(
+      REPO_ROOT,
+      'chromium/overlay/chrome/browser/resources/newtab/design_tokens.css',
+    ),
     path.join(REPO_ROOT, 'packages/ui-lab/src/tokens.generated.css'),
   ],
   ts: path.join(REPO_ROOT, 'packages/design-tokens/src/tokens.generated.ts'),

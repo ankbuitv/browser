@@ -1,0 +1,19 @@
+# Copyright 2026 The Aurelia Authors
+# Use of this source code is governed by the Mozilla Public License, v. 2.0,
+# that can be found in the LICENSE file at the repository root.
+
+import("//ui/webui/resources/tools/build_webui.gni")
+
+assert(!is_android)
+
+# Generates :build_ts, :build_grd and :resources (GRIT headers, map and pak).
+build_webui("build") {
+  grd_prefix = "aurelia_newtab"
+  static_files = [
+    "newtab.html",
+    "newtab.css",
+    "design_tokens.css",
+  ]
+  ts_files = [ "newtab_app.ts" ]
+  webui_context_type = "trusted"
+}

@@ -21,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadConfig } from './lib/config.mjs';
+import { fetchUpstreamFileViaApi } from './lib/upstream.mjs';
 import { isMainModule } from '../lib/entry.mjs';
 
 export const REPO_ROOT = path.resolve(
@@ -63,23 +64,9 @@ export function fetchFileAtRevision(repository, revision, file) {
     .replace(/^https?:\/\/(www\.)?github\.com\//, '')
     .replace(/\.git$/, '')
     .split('/');
-  const result = spawnSync(
-    'gh',
-    [
-      'api',
-      `repos/${owner}/${name}/contents/${file}?ref=${revision}`,
-      '--jq',
-      '.content',
-    ],
-    { encoding: 'utf8', env: process.env },
+  return fetchUpstreamFileViaApi(`${owner}/${name}`, revision, file).toString(
+    'utf8',
   );
-  if (result.status !== 0) {
-    throw new Error(
-      `gh api failed (${result.status}): ${result.stderr.trim()}`,
-    );
-  }
-  const decoded = Buffer.from(result.stdout.trim(), 'base64').toString('utf8');
-  return decoded;
 }
 
 /**

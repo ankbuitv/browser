@@ -27,6 +27,7 @@ import {
 } from '../chromium/verify-patches.mjs';
 import { gnArgFiles, validateGnArgs } from '../chromium/gn-args.mjs';
 import { checkContrast } from '../design/check-contrast.mjs';
+import { checkWebUIResources } from './check-webui-resources.mjs';
 import { checkDocsLinks } from './check-docs-links.mjs';
 import { checkPowerShellScripts } from './check-powershell.mjs';
 import { compareWorkflows } from './install-workflows.mjs';
@@ -164,6 +165,13 @@ export function runFastChecks({ log = console.log } = {}) {
         : missingDocs.join(', '),
     );
   }
+
+  const webui = checkWebUIResources();
+  record(
+    'static GN/GRIT/WebUI consistency (not a build)',
+    webui.ok,
+    webui.problems.join('; '),
+  );
 
   const contrast = checkContrast();
   record(

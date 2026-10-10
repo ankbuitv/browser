@@ -58,7 +58,7 @@ export class AureliaAppElement extends HTMLElement {
 
   private info: BuildInfo|null = null;
 
-  override connectedCallback(): void {
+  connectedCallback(): void {
     if (this.hasAttribute('data-rendered')) {
       return;
     }

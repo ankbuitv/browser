@@ -2,7 +2,7 @@
   "baseRevision": "cfaadc5a132d78e1828635aa8405a499f3e14864",
   "baseVersion": "155.0.8059.40",
   "upstreamRepository": "https://github.com/chromium/chromium",
-  "recordedAt": "2026-10-07",
+  "recordedAt": "2026-10-10",
   "note": "Digests of the untouched upstream pre-images each patch expects. Records both sides of every change so patch verification is possible offline.",
   "preImages": [
     {
@@ -31,35 +31,53 @@
       "sha256": "e96a1eadc4595835fea0148b14edcc2125f5eacd3b439946124f29c029b8d675"
     },
     {
+      "path": "chrome/chrome_paks.gni",
+      "bytes": 33988,
+      "sha256": "80da784fb81c8cca9d3d38c8b2ffa63828d4b9e415bc1d6553e2c93099085755"
+    },
+    {
       "path": "chrome/common/webui_url_constants.h",
       "bytes": 33752,
       "sha256": "912d6325c0d0d5c6e9f287962a5629b8ac4338bdbe5f168d92aab86f3534616e"
+    },
+    {
+      "path": "tools/gritsettings/resource_ids.spec",
+      "bytes": 69388,
+      "sha256": "dee816e323cedb6c2a458e152e1cef8e956a9c6a445165e1437545f3321e8007"
     }
   ],
   "postImages": [
     {
       "path": "chrome/browser/BUILD.gn",
-      "sha256": "0228944bc89db58c03df718f6dfcc6c4366b2ad1a6a244c99dd03e1182a2f278"
+      "sha256": "2c0e662b3f29048c823f7d5224310bbd62f19a3c2a35a8ebfc2c68b3961d0c15"
     },
     {
       "path": "chrome/browser/resources/BUILD.gn",
-      "sha256": "0151d3b885316f81da046a4a2a698b3ca7e963ad5d49351469b6d3e5b3a15ee1"
+      "sha256": "7b14188ab07aa0b5ff2ac91395911d5e407b882f22b5fe39062d717cbe17726c"
     },
     {
       "path": "chrome/browser/ui/BUILD.gn",
-      "sha256": "aea892d3a38f90c5170a8ddf34081310584a319c9744ea5cfb3061ced1eef107"
+      "sha256": "6958fcebba4596155ecbcde774f5e90853415e455719d9379dfd6f5b2e63918e"
     },
     {
       "path": "chrome/browser/ui/webui/BUILD.gn",
-      "sha256": "2c1cb0fe018e2ec3a5ec5348d38df3101f37ca0559525975a6ed4892c77b0495"
+      "sha256": "6f52747e37e32d40f4ba94f33e9a39dde3b90b41f8fae1867a3d910a1e830278"
     },
     {
       "path": "chrome/browser/ui/webui/chrome_web_ui_configs.cc",
-      "sha256": "7dd84021c22c75d5fd269d57b8741a200a6c6cb9417e4b047e3e92b56906e106"
+      "sha256": "133b1b82e66b29650f61824fc9cb7a7642aff35f53c897dbaad60d3df97da888"
+    },
+    {
+      "path": "chrome/chrome_paks.gni",
+      "sha256": "5f0bdd87c5e20f712df0f3c319d4cc47d53ba62e11cec4a9c8eb1c30845a0561"
     },
     {
       "path": "chrome/common/webui_url_constants.h",
-      "sha256": "1913442b50da84319690a64b696cae681d06525473955a75149d11c75b0fd449"
+      "sha256": "c77fcd5fab3e6645c76ec62f0ac2ecc09b19b444867af6624ba2fbd63991c69c"
+    },
+    {
+      "path": "tools/gritsettings/resource_ids.spec",
+      "sha256": "a42e1518bc9c9515c9d1c8743468883044e042b2c2de4c1f09a0b0bfe4523b9a"
     }
   ]
 }

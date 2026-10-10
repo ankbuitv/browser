@@ -31,7 +31,7 @@ browser itself does not exist yet. Full item-by-item detail:
 | Area                                                                     | State                                                                     |
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
 | Chromium pin (exact revision, verified)                                  | **TESTED** — `155.0.8059.40` @ `cfaadc5a132d` (stable channel)            |
-| Overlay + patch mechanism (7 inserted lines in 6 upstream files)         | **TESTED** — verified against the pinned upstream revision                |
+| Overlay + patch mechanism (26 inserted lines in 8 upstream files)        | **TESTED** — verified against the pinned upstream revision                |
 | Reproducible checkout tooling                                            | **IMPLEMENTED** — never run against a real checkout                       |
 | `chrome://aurelia` WebUI (C++ + TS/CSS)                                  | **SCAFFOLDED** — written, not compiled                                    |
 | GN integration                                                           | **SCAFFOLDED** — follows upstream's `webui_gallery` pattern; not compiled |
@@ -105,8 +105,8 @@ You cannot build the browser in a small sandbox: Chromium needs roughly
 it either, which is why that build runs on a self-hosted builder.
 
 ```bash
-git clone https://github.com/ankbuitv/browser.git
-cd browser
+git clone https://github.com/ankworks/aurelia.git
+cd aurelia
 node tools/chromium/cli.mjs status          # what is pinned
 node tools/chromium/cli.mjs verify-patches --online   # the delta still applies
 ```

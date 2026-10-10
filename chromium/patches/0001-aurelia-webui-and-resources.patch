@@ -1,80 +1,136 @@
 diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
-index b58905d..077d545 100644
+index b58905d..2e8adf8 100644
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
-@@ -2623,6 +2623,7 @@ source_set("browser") {
+@@ -2623,6 +2623,8 @@ source_set("browser") {
        "//chrome/browser/ui/waap:window_metrics_manager",
        "//chrome/browser/ui/web_applications:impl",
        "//chrome/browser/ui/webui/app_service_internals",
 +      "//chrome/browser/ui/webui/aurelia",
++      "//chrome/browser/ui/webui/newtab",
        "//chrome/browser/ui/webui/autofill_ml_internals",
        "//chrome/browser/ui/webui/color_pipeline_internals",
        "//chrome/browser/ui/webui/commerce",
 diff --git a/chrome/browser/resources/BUILD.gn b/chrome/browser/resources/BUILD.gn
-index c76bba1..40256ae 100644
+index c76bba1..00fe904 100644
 --- a/chrome/browser/resources/BUILD.gn
 +++ b/chrome/browser/resources/BUILD.gn
-@@ -54,6 +54,7 @@ group("resources") {
+@@ -54,6 +54,8 @@ group("resources") {
        "access_code_cast:resources",
        "actor_overlay:resources",
        "app_service_internals:resources",
 +      "aurelia:resources",
++      "newtab:resources",
        "autofill_ml_internals:resources",
        "bookmarks:resources",
        "certificate_manager:resources",
 diff --git a/chrome/browser/ui/BUILD.gn b/chrome/browser/ui/BUILD.gn
-index 82f3975..1cccca0 100644
+index 82f3975..281d408 100644
 --- a/chrome/browser/ui/BUILD.gn
 +++ b/chrome/browser/ui/BUILD.gn
-@@ -1441,6 +1441,7 @@ static_library("ui") {
+@@ -1441,6 +1441,8 @@ static_library("ui") {
        "//chrome/browser/ui/sessions",
        "//chrome/browser/ui/views/drive_picker_host",
        "//chrome/browser/ui/web_modal:browser_window_modal_dialog_delegate",
 +      "//chrome/browser/ui/webui/aurelia",
++      "//chrome/browser/ui/webui/newtab",
        "//chrome/browser/ui/webui/webui_gallery",
        "//chrome/browser/ui/zoom:browser_window_zoom_observer",
      ]
 diff --git a/chrome/browser/ui/webui/BUILD.gn b/chrome/browser/ui/webui/BUILD.gn
-index 2a4eae8..f5ae571 100644
+index 2a4eae8..a1c68a6 100644
 --- a/chrome/browser/ui/webui/BUILD.gn
 +++ b/chrome/browser/ui/webui/BUILD.gn
-@@ -254,6 +254,7 @@ source_set("configs") {
+@@ -254,6 +254,8 @@ source_set("configs") {
  
    if (!is_android) {
      deps += [
 +      "//chrome/browser/ui/webui/aurelia",
++      "//chrome/browser/ui/webui/newtab",
        "//chrome/browser/ui/webui/bookmarks",
        "//chrome/browser/ui/webui/downloads",
        "//chrome/browser/ui/webui/support_tool",
 diff --git a/chrome/browser/ui/webui/chrome_web_ui_configs.cc b/chrome/browser/ui/webui/chrome_web_ui_configs.cc
-index 62b07dc..3521625 100644
+index 62b07dc..933e0d5 100644
 --- a/chrome/browser/ui/webui/chrome_web_ui_configs.cc
 +++ b/chrome/browser/ui/webui/chrome_web_ui_configs.cc
-@@ -15,6 +15,7 @@
- #include "chrome/browser/ui/webui/about/about_ui.h"
- #include "chrome/browser/ui/webui/accessibility/accessibility_ui.h"
- #include "chrome/browser/ui/webui/actor_internals/actor_internals_ui.h"
+@@ -92,7 +92,9 @@
+ #include "chrome/browser/ui/webui/media_router/cast_feedback_ui.h"
+ #endif
+ #include "chrome/browser/ui/webui/access_code_cast/access_code_cast_ui.h"
 +#include "chrome/browser/ui/webui/aurelia/aurelia_ui.h"
- #include "chrome/browser/ui/webui/autofill_and_password_manager_internals/autofill_internals_ui.h"
- #include "chrome/browser/ui/webui/autofill_and_password_manager_internals/password_manager_internals_ui.h"
- #include "chrome/browser/ui/webui/bluetooth_internals/bluetooth_internals_ui.h"
-@@ -345,6 +346,7 @@ void RegisterChromeWebUIConfigs() {
-   map.AddWebUIConfig(std::make_unique<WebApksUIConfig>());
- #else  // BUILDFLAG(IS_ANDROID)
- #if !BUILDFLAG(IS_CHROMEOS)
+ #include "chrome/browser/ui/webui/app_service_internals/app_service_internals_ui.h"
++#include "chrome/browser/ui/webui/newtab/newtab_ui.h"
+ #include "chrome/browser/ui/webui/autofill_ml_internals/autofill_ml_internals_ui.h"
+ #include "chrome/browser/ui/webui/bookmarks/bookmarks_ui.h"
+ #include "chrome/browser/ui/webui/color_pipeline_internals/color_pipeline_internals_ui.h"
+@@ -386,6 +388,8 @@ void RegisterChromeWebUIConfigs() {
+   map.AddWebUIConfig(std::make_unique<NewTabFooterUIConfig>());
+   map.AddWebUIConfig(std::make_unique<NewTabPageThirdPartyUIConfig>());
+ #endif  // BUILDFLAG(ENABLE_WEBUI_NTP)
 +  map.AddWebUIConfig(std::make_unique<AureliaUIConfig>());
-   map.AddWebUIConfig(std::make_unique<AppHomeUIConfig>());
- #endif  // !BUILDFLAG(IS_CHROMEOS)
- #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
++  map.AddWebUIConfig(std::make_unique<AureliaNewTabUIConfig>());
+   map.AddWebUIConfig(std::make_unique<NewTabUIConfig>());
+   map.AddWebUIConfig(std::make_unique<OmniboxEverywhereUIConfig>());
+   map.AddWebUIConfig(std::make_unique<OmniboxPopupUIConfig>());
+diff --git a/chrome/chrome_paks.gni b/chrome/chrome_paks.gni
+index bf4f418..447fb92 100644
+--- a/chrome/chrome_paks.gni
++++ b/chrome/chrome_paks.gni
+@@ -207,6 +207,8 @@ template("chrome_extra_paks") {
+         "$root_gen_dir/chrome/access_code_cast_resources.pak",
+         "$root_gen_dir/chrome/actor_overlay_resources.pak",
+         "$root_gen_dir/chrome/app_service_internals_resources.pak",
++        "$root_gen_dir/chrome/aurelia_resources.pak",
++        "$root_gen_dir/chrome/aurelia_newtab_resources.pak",
+         "$root_gen_dir/chrome/autofill_ml_internals_resources.pak",
+         "$root_gen_dir/chrome/bookmarks_resources.pak",
+         "$root_gen_dir/chrome/browser/actor/resources/actor_browser_resources.pak",
+@@ -268,6 +270,8 @@ template("chrome_extra_paks") {
+ 
+       deps += [
+         "//chrome/browser/actor/resources:browser_resources",
++        "//chrome/browser/resources/aurelia:resources",
++        "//chrome/browser/resources/newtab:resources",
+         "//chrome/browser/indigo/resources:browser_resources",
+         "//chrome/browser/resources/contextual_cueing/internals:resources",
+         "//chrome/browser/resources/geic:resources",
 diff --git a/chrome/common/webui_url_constants.h b/chrome/common/webui_url_constants.h
-index 47c543c..6fd8eda 100644
+index 47c543c..4f36743 100644
 --- a/chrome/common/webui_url_constants.h
 +++ b/chrome/common/webui_url_constants.h
-@@ -53,6 +53,7 @@ inline constexpr char kChromeUIAppsWithDeprecationDialogURL[] =
+@@ -53,6 +53,8 @@ inline constexpr char kChromeUIAppsWithDeprecationDialogURL[] =
      "chrome://apps?showDeletionDialog=";
  inline constexpr char kChromeUIAppsWithForceInstalledDeprecationDialogURL[] =
      "chrome://apps?showForceInstallDialog=";
 +inline constexpr char kChromeUIAureliaHost[] = "aurelia";
++inline constexpr char kChromeUINewTabAureliaHost[] = "aurelia-newtab";
  inline constexpr char kChromeUIAutofillAiPath[] = "/enhancedAutofill";
  inline constexpr char kChromeUIAutofillPath[] = "/autofill";
  inline constexpr char kChromeUIAutofillInternalsHost[] = "autofill-internals";
+diff --git a/tools/gritsettings/resource_ids.spec b/tools/gritsettings/resource_ids.spec
+index c90c7c5..6f1e5a4 100644
+--- a/tools/gritsettings/resource_ids.spec
++++ b/tools/gritsettings/resource_ids.spec
+@@ -244,6 +244,10 @@
+     "META": {"sizes": {"includes": [1000],}},
+     "includes": [2860],
+   },
++  "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/aurelia/resources.grd": {
++    "META": {"sizes": {"includes": [20]}},
++    "includes": [2870],
++  },
+   "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/bluetooth_internals/resources.grd": {
+     "META": {"sizes": {"includes": [50],}},
+     "includes": [2880],
+@@ -652,6 +656,10 @@
+     "META": {"sizes": {"includes": [10]}},
+     "includes": [4450],
+   },
++  "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/newtab/resources.grd": {
++    "META": {"sizes": {"includes": [20]}},
++    "includes": [4452],
++  },
+   "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/omnibox/aim_eligibility_extension/resources.grd": {
+     "META": {"sizes": {"includes": [10]}},
+     "includes": [4455],
