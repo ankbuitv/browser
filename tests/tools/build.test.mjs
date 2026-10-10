@@ -7,10 +7,17 @@ import {
   LADDER,
   REPO_ROOT,
   buildPlan,
+  runBuild,
 } from '../../tools/chromium/build.mjs';
 
-describe('local build driver', () => {
+describe('legacy build-plan tooling', () => {
   const plan = buildPlan({ dest: 'D:/chromium' });
+
+  it('retires the legacy executor and requires the unified workflow', () => {
+    expect(() => runBuild()).toThrow(
+      'The legacy build executor is retired. Dispatch .github/workflows/chromium-build.yml',
+    );
+  });
 
   it('runs the pipeline in the order that earns the ladder states', () => {
     expect(plan.map((stage) => stage.id)).toEqual([
@@ -76,31 +83,32 @@ describe('local build driver', () => {
     expect(skipped.map((stage) => stage.id)).toContain('verify-patches');
   });
 
-  it('keeps its stage list in step with the CI workflow', () => {
-    const workflow = readFileSync(
-      path.join(
-        REPO_ROOT,
-        'tools/ci/workflows/chromium-heavy-build-windows.yml',
-      ),
+  it('keeps the hosted validation stages ordered and explicit', () => {
+    const driver = readFileSync(
+      path.join(REPO_ROOT, 'tools/chromium/ci-validation.mjs'),
       'utf8',
     );
     const markers = [
-      'sync.mjs --dest',
-      'verify-patches --checkout',
-      'install-overlay.mjs --checkout',
-      'fork-delta --check',
-      'gn-args.mjs',
-      'gn gen',
-      'autoninja -C',
-      'stage-runtime.mjs --out',
-      'smoke-test.mjs --binary',
-      'record-smoke-test',
+      "id: 'pinned-sync'",
+      "id: 'patch-verification'",
+      "id: 'overlay-application'",
+      "id: 'fork-delta'",
+      "id: 'gn-argument-policy'",
+      "id: 'gn-generation'",
+      "id: 'gn-effective-arguments'",
+      "id: 'gn-check'",
+      "id: 'webui-resources'",
+      "id: 'targeted-cpp'",
+      "id: 'full-chrome'",
     ];
     let cursor = -1;
     for (const marker of markers) {
-      const index = workflow.indexOf(marker, cursor + 1);
-      expect(index, `workflow is missing stage: ${marker}`).toBeGreaterThan(-1);
-      expect(index, `workflow stage out of order: ${marker}`).toBeGreaterThan(
+      const index = driver.indexOf(marker, cursor + 1);
+      expect(
+        index,
+        `validation driver is missing stage: ${marker}`,
+      ).toBeGreaterThan(-1);
+      expect(index, `validation stage out of order: ${marker}`).toBeGreaterThan(
         cursor,
       );
       cursor = index;
@@ -108,7 +116,7 @@ describe('local build driver', () => {
     expect(BUILD_STAGES.length).toBeGreaterThanOrEqual(markers.length);
   });
 
-  it('selects the low-resource GN profile and its disk floor explicitly', () => {
+  it('keeps the retired low-resource dry-run behind the full sync disk gate', () => {
     const low = buildPlan({
       dest: 'D:/chromium',
       profile: 'low-resource',
@@ -124,19 +132,19 @@ describe('local build driver', () => {
     const preflight = commands.find((command) =>
       command.args.includes('--check-only'),
     );
-    expect(preflight.args).toContain('--low-resource-experiment');
+    expect(preflight.args).not.toContain('--low-resource-experiment');
     const sync = commands.find(
       (command) =>
         command.args.some((argument) => argument.endsWith('sync.mjs')) &&
         !command.args.includes('--check-only'),
     );
-    expect(sync.args).toContain('--low-resource-experiment');
+    expect(sync.args).not.toContain('--low-resource-experiment');
     const compile = commands.find((command) => command.file === 'autoninja');
     expect(compile.args).toContain('-j');
     expect(compile.args).toContain('2');
   });
 
-  it('never runs the low-resource profile without a job limit', () => {
+  it('keeps the retired low-resource plan bounded to one job by default', () => {
     const low = buildPlan({ dest: 'D:/chromium', profile: 'low-resource' });
     const compile = low
       .flatMap((stage) => stage.commands)

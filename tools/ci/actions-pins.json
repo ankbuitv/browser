@@ -22,7 +22,7 @@
     "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02": {
       "tag": "v4",
       "resolvedAt": "2026-10-07",
-      "purpose": "Upload build reports from the heavy build workflow."
+      "purpose": "Upload Chromium validation logs, summaries, and eligible bounded browser artifacts; never source trees."
     }
   }
 }

@@ -1,0 +1,102 @@
+name: Chromium build validation
+
+# Manual only. The standard runner is deliberately measured first and is not
+# allowed to start a Chromium sync unless it meets Aurelia's recorded minimums.
+# Use the larger option only when the organization has a GitHub-hosted Windows
+# larger runner named windows-latest-8-cores (8 CPU, 32 GB RAM, 300 GB SSD).
+run-name: Chromium ${{ inputs.validation_level || 'gn' }} validation (${{ inputs.runner_size || 'standard' }} hosted runner)
+
+on:
+  workflow_dispatch:
+    inputs:
+      validation_level:
+        description: Validation depth. Full runs only after GN, resources, and targeted C++ validation pass in this run.
+        required: true
+        type: choice
+        options:
+          - gn
+          - targeted
+          - full
+        default: gn
+      runner_size:
+        description: Standard runner is expected to report BLOCKED; larger requires the named GitHub-hosted runner to be configured.
+        required: true
+        type: choice
+        options:
+          - standard
+          - larger
+        default: standard
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chromium-build-validation-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: ${{ inputs.validation_level || 'gn' }} / ${{ inputs.runner_size || 'standard' }}
+    runs-on: ${{ inputs.runner_size == 'larger' && 'windows-latest-8-cores' || 'windows-2025' }}
+    timeout-minutes: 360
+    env:
+      AURELIA_VALIDATION_LEVEL: ${{ inputs.validation_level || 'gn' }}
+      AURELIA_RUNNER_SIZE: ${{ inputs.runner_size || 'standard' }}
+      DEPOT_TOOLS_UPDATE: '0'
+      GCLIENT_PY3: '1'
+      NINJA_SUMMARIZE_BUILD: '1'
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - name: Check out Aurelia without persisting credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+
+      - name: Run pinned Chromium validation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $destination = Join-Path $env:RUNNER_TEMP 'aurelia-chromium'
+          $artifactDirectory = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
+          & node tools/chromium/ci-validation.mjs `
+            --mode $env:AURELIA_VALIDATION_LEVEL `
+            --runner-size $env:AURELIA_RUNNER_SIZE `
+            --dest $destination `
+            --artifacts $artifactDirectory
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            Write-Host "::error::Chromium validation exited with code $exitCode. See the build summary and stage logs."
+            exit $exitCode
+          }
+
+      - name: Publish build summary
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $summaryPath = Join-Path $env:GITHUB_WORKSPACE 'artifacts\build-summary.md'
+          if (Test-Path $summaryPath) {
+            Get-Content $summaryPath -Raw | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } else {
+            @(
+              '# Chromium build validation summary',
+              '',
+              '- Overall status: **NOT TESTED**',
+              '- The validation process did not create a summary. Inspect the workflow logs.'
+            ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+
+      - name: Upload validation logs and eligible browser artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: chromium-build-validation-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 7

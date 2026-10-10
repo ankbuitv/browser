@@ -20,9 +20,9 @@
  *      confirm every post-image digest matches (proves the patch still applies
  *      cleanly and produces the exact expected result).
  *
- * What this does NOT prove: that Chromium compiles. Only the heavy build
- * workflows in tools/ci/workflows/ (deployed to .github/workflows/) can prove
- * that: chromium-heavy-build-windows.yml builds and smoke tests the tree.
+ * What this does NOT prove: that Chromium compiles. The manual GitHub-hosted
+ * validation workflow in .github/workflows/chromium-build.yml can provide
+ * compiler evidence, but a successful patch check alone does not prove a build.
  */
 import { readFileSync, readdirSync, existsSync, mkdirSync, rmSync, writeFileSync, statSync } from 'node:fs';
 import path from 'node:path';

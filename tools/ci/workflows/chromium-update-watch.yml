@@ -83,9 +83,10 @@ jobs:
             echo "   - update \`config/chromium_version.json\` (revision, version, milestone, pinnedAt)"
             echo "   - \`node tools/chromium/cli.mjs generate-patch\`"
             echo "   - \`node tools/chromium/cli.mjs verify-patches --online\`"
-            echo "2. Run the heavy build workflow and the runtime smoke test."
-            echo "3. Update docs/FORK-DELTA.md if the delta changed."
-            echo "4. Maintainer review and merge. Never merge an update automatically."
+            echo "2. Dispatch chromium-build.yml. Full is an explicit choice and reruns GN plus targeted checks in the same run before compiling chrome."
+            echo "3. Run the runtime smoke test against the compiler-produced browser artifact."
+            echo "4. Update docs/FORK-DELTA.md if the delta changed."
+            echo "5. Maintainer review and merge. Never merge an update automatically."
             echo
             echo "Completion state: NOT STARTED"
           } > issue-body.md

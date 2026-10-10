@@ -100,9 +100,11 @@ it works today.
 
 ## Building
 
-You cannot build the browser in a small sandbox: Chromium needs roughly
-**8+ cores, 32 GB RAM and 150 GB free disk**. GitHub-hosted CI runners cannot do
-it either, which is why that build runs on a self-hosted builder.
+You cannot build the browser in a small sandbox: Aurelia's conservative first-
+build gate requires **8+ cores, 32 GB RAM and 150 GB free disk**. The manual
+GitHub Actions workflow defaults to a safe `gn` validation level and blocks
+standard runners before source sync; a configured GitHub-hosted larger runner
+is needed to attempt Chromium validation. No Chromium compilation has run yet.
 
 ```bash
 git clone https://github.com/ankworks/aurelia.git
@@ -116,13 +118,10 @@ test): [docs/BUILDING-CHROMIUM.md](docs/BUILDING-CHROMIUM.md). For working on
 Aurelia's own code without a Chromium checkout, see
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-The minimum above is not lowered, but there is one deliberate exception for a
-first attempt on a machine you own:
-[docs/LOCAL-WINDOWS-BUILD.md](docs/LOCAL-WINDOWS-BUILD.md) documents the
-`LOW_RESOURCE_EXPERIMENT` path - one command, I/O and disk checks before anything
-large, a disk reserve the build stops before consuming, and a job count computed
-from the measured machine. It has not been run on Windows yet and it proves
-nothing until it is.
+The minimum above is not lowered. Local and self-hosted compilation are
+blocked; the only supported Chromium compile path is the manual GitHub-hosted
+workflow. The former local Windows build instructions are retained as a retired
+reference in [docs/LOCAL-WINDOWS-BUILD.md](docs/LOCAL-WINDOWS-BUILD.md).
 
 ## Repository layout
 
@@ -148,7 +147,7 @@ docs/                   Architecture, roadmap, threat models, build guides
 | Chromium upstream strategy       | [docs/CHROMIUM-UPSTREAM.md](docs/CHROMIUM-UPSTREAM.md)     |
 | How much we change Chromium      | [docs/FORK-DELTA.md](docs/FORK-DELTA.md)                   |
 | Building                         | [docs/BUILDING-CHROMIUM.md](docs/BUILDING-CHROMIUM.md)     |
-| Local low-resource Windows build | [docs/LOCAL-WINDOWS-BUILD.md](docs/LOCAL-WINDOWS-BUILD.md) |
+| Retired local Windows build path | [docs/LOCAL-WINDOWS-BUILD.md](docs/LOCAL-WINDOWS-BUILD.md) |
 | Privacy (data flows)             | [PRIVACY.md](PRIVACY.md)                                   |
 | Security & reporting             | [SECURITY.md](SECURITY.md)                                 |
 | Threats                          | [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)               |

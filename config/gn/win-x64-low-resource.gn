@@ -1,45 +1,14 @@
-# Aurelia - LOW_RESOURCE_EXPERIMENT configuration (Windows x64).
+# Aurelia - retired LOW_RESOURCE_EXPERIMENT policy fixture (Windows x64).
 #
-# This is the profile for the *unsupported* experiment of compiling Aurelia's
-# Chromium on a machine below the documented builder minimums (8 logical cores
-# / 32 GB RAM / 150 GB free disk). It changes only how much work the compiler
-# and linker are asked to do. It never changes what the browser is allowed to
-# do: no sandbox, site-isolation, certificate or process-isolation switch
-# appears here, and the allowlist in tools/chromium/gn-args.mjs rejects such
-# keys outright.
+# Retained only so repository tests can verify the historical GN argument
+# policy. It is not used by the supported Chromium workflow and does not
+# authorize compilation on local, self-hosted, or under-resourced machines.
+# The only supported compile entry point is the manual GitHub-hosted workflow;
+# it enforces the 8-core / 32-GB RAM / 150-GB free-disk gate independently.
 #
-# Every key below exists in Chromium at the pinned revision; nothing is
-# invented. The three reductions, with the upstream evidence:
-#
-#   symbol_level = 0
-#     On Windows the default for is_debug = false is 2 (full symbols):
-#     build/config/compiler/compiler.gni sets
-#         default_symbol_level = 2
-#     for `!is_linux && !is_chromeos && !is_fuchsia && !is_debug`, and the
-#     per-target default is derived from it. Symbols dominate compile memory,
-#     link time and disk. 0 means no symbols, so crash stacks are incomplete -
-#     acceptable for a local experiment, never for a released build.
-#
-#   concurrent_links = 1
-#     Upstream's own lever for memory-constrained builds
-#     (build/toolchain/concurrent_links.gni: "we often want to run fewer links
-#     at once than we do compiles, because linking is memory-intensive").
-#     One link at a time; compilation still runs in parallel - the number of
-#     compile jobs is limited on the command line instead
-#     (`autoninja -j N`, see tools/windows/bootstrap-build.ps1).
-#
-#   is_component_build = true
-#     Many smaller shared libraries instead of two huge ones: shorter links and
-#     a much lower peak linker memory. This is the standard developer setting
-#     and is what makes a low-RAM link possible at all.
-#
-# treat_warnings_as_errors = false keeps upstream warnings from failing a
-# downstream experiment; is_component_build defaults to false once is_debug is
-# false, so it is set explicitly.
-#
-# These settings describe *building*, not *running*. They are not a performance
-# claim about the resulting browser: symbol level and link parallelism have no
-# effect on how fast the built browser is.
+# The values below are real upstream GN arguments at the configured Chromium
+# pin and contain no security-weakening switch. Keep this fixture for policy
+# regression checks, not as a build configuration.
 
 is_debug = false
 is_official_build = false

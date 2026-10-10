@@ -41,8 +41,8 @@ Recorded because it shaped the strategy:
    edits and verified against pristine pre-images at the pinned commit.
 3. **Lightweight verification instead of a local build**: the environment can
    prove the patch applies to the exact upstream revision, but cannot prove it
-   compiles. That gap is documented rather than papered over, and a self-hosted
-   builder workflow exists to close it.
+   compiles. The manual GitHub-hosted validation workflow is the compile path;
+   it blocks standard runners and requires an adequately sized hosted runner.
 4. **Toolchain pin honesty**: `depot_tools` cannot be reached from here, so its
    revision is `null` with an explicit recording procedure rather than an
    invented SHA.
@@ -51,9 +51,9 @@ Recorded because it shaped the strategy:
 
 ## Follow-ups created from this audit
 
-| Follow-up                                                          | Where                                     |
-| ------------------------------------------------------------------ | ----------------------------------------- |
-| Provision the heavy builder and record measured requirements       | milestone M0 issue                        |
-| Confirm the pinned channel on a networked machine (`chromiumdash`) | milestone M0 issue                        |
-| Record the `depot_tools` revision                                  | milestone M0 issue                        |
-| Naming/trademark review before public release                      | [NAMING.md](NAMING.md) + owner escalation |
+| Follow-up                                                                                      | Where                                     |
+| ---------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Configure an eligible GitHub-hosted Windows larger runner and record its measured requirements | milestone M0 issue                        |
+| Confirm the pinned channel on a networked machine (`chromiumdash`)                             | milestone M0 issue                        |
+| Record the `depot_tools` revision                                                              | milestone M0 issue                        |
+| Naming/trademark review before public release                                                  | [NAMING.md](NAMING.md) + owner escalation |

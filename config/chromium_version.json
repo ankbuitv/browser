@@ -59,7 +59,7 @@
     "botWorkflow": ".github/workflows/chromium-update-watch.yml",
     "rules": [
       "Never merge a Chromium update directly into main.",
-      "Detect -> open an issue with a candidate revision and the patch verification report -> verify patch set -> heavy build + smoke test -> maintainer merge.",
+      "Detect -> open an issue with a candidate revision and the patch verification report -> dispatch the GitHub-hosted Chromium validation workflow -> run a separate runtime smoke test -> maintainer merge.",
       "Security releases are prioritised but still verified before merge.",
       "A pin change requires a matching `git apply` verification against the new revision."
     ]
@@ -69,7 +69,7 @@
       "source": "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
       "revision": "1e43ae345913614898e3d6a1ef2680a0d47574e9",
       "revisionStatus": "pinned",
-      "why": "depot_tools has no GitHub mirror, so the revision was read from the canonical gitiles endpoint and pinned like any other source dependency. Update it deliberately, together with Chromium pin updates, and let the heavy build prove the combination works.",
+      "why": "depot_tools has no GitHub mirror, so the revision was read from the canonical gitiles endpoint and pinned like any other source dependency. Update it deliberately, together with Chromium pin updates, and use the manual GitHub-hosted validation workflow to prove the combination works.",
       "recordWith": "node tools/chromium/sync.mjs --record-depot-tools <sha>",
       "trackedBy": "issue #4",
       "pinnedAt": "2026-10-07",

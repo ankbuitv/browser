@@ -1,266 +1,132 @@
-# Building Aurelia from Chromium sources
+# GitHub-hosted Chromium validation
 
-This document is the authoritative build guide. It is written to be honest about
-one thing up front: **building Chromium is a large operation.** Do not expect a
-laptop or a small CI runner to do it.
+## Policy and current status
 
-## Before you start: what "build" means here
+Chromium validation is a **manual GitHub Actions workflow** and all Chromium
+compilation must run on GitHub-hosted Windows x64 runners. There is no
+self-hosted, local, external-cloud, containerized, Electron, CEF, or WebView2
+compile path. The legacy build plan remains for dry-run/history tests only; its
+executor and local bootstrap are retired. The unified GitHub-hosted workflow is
+the only supported compilation entry point.
 
-| Task                                                  | Needs a Chromium checkout? | Time                 |
-| ----------------------------------------------------- | -------------------------- | -------------------- |
-| Verify the patch set against the pinned revision      | no (fetches a few files)   | seconds              |
-| Run fast CI checks (format, lint, unit tests, policy) | no                         | ~1 minute            |
-| Compile a full browser                                | **yes**                    | hours on first build |
+No Chromium compilation has succeeded yet. A source sync, patch check, GN
+configuration, or unit test is not compiler evidence. A compile is claimed only
+when the corresponding `autoninja` command exits with code `0` in the
+GitHub Actions run; runtime integration and smoke testing require separate
+evidence.
 
-If you only want to work on Aurelia's own WebUI/resources, start with
-[DEVELOPMENT.md](DEVELOPMENT.md) (harness + fast checks) instead.
+The authoritative workflow is `.github/workflows/chromium-build.yml` (canonical
+source: `tools/ci/workflows/chromium-build.yml`). It has only the
+`workflow_dispatch` trigger. It does not run on `push`, `pull_request`, or a
+schedule, and `gn` is the default validation level.
 
-Check the machine before you sync anything - the checkout is the expensive
-part, and finding out at hour five that the disk is too small wastes a day:
+## Dispatch inputs
 
-```bash
-node tools/ci/check-builder.mjs --dest <checkout-parent>
-node tools/ci/check-builder.mjs --dest <checkout-parent> --record artifacts/runner-capabilities.json
-```
+| Input              | Options                            | Behavior                                                                                                                                                                                               |
+| ------------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `validation_level` | `gn` (default), `targeted`, `full` | `targeted` and `full` must be chosen explicitly. Every level runs all earlier checks in the same job. `full` compiles `chrome` only after GN, WebUI resources, and targeted C++ pass in that same run. |
+| `runner_size`      | `standard` (default), `larger`     | `standard` targets GitHub-hosted `windows-2025` and is expected to report `BLOCKED` before Chromium source sync. `larger` targets the configured GitHub-hosted label `windows-latest-8-cores`.         |
 
-It only reads: cores, RAM, free space on the volume that will hold the
-checkout, and (on Windows) the Visual Studio C++ x64 toolchain. The
-heavy-build workflow runs the same script, so the verdict on the machine and
-the verdict in CI cannot disagree. This sandbox fails it on purpose.
+The organization must provision a GitHub-hosted Windows larger runner, grant
+repository access, and configure the label before `larger` can start. The
+workflow does not silently fall back if the label is unavailable. Its preflight
+also confirms the runner reports `GITHUB_ACTIONS=true` and
+`RUNNER_ENVIRONMENT=github-hosted`; a local or self-hosted invocation is
+blocked.
 
-## Measured and expected requirements
+## Resource policy
 
-| Resource  | Minimum                                                                   | Recommended | Notes                                                                                                            |
-| --------- | ------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------- |
-| CPU cores | 8                                                                         | 16-32       | Ninja parallelises heavily; link steps are memory-bound.                                                         |
-| RAM       | 32 GB                                                                     | 64 GB       | A parallel link of `chrome` can exceed 32 GB.                                                                    |
-| Free disk | 150 GB                                                                    | 300 GB+     | Source + `depot_tools` + `.git` + `out/` + symbol files. Component builds and incremental rebuilds grow quickly. |
-| Network   | HTTPS to `chromium.googlesource.com`, `chrome-infra-packages.appspot.com` | same        | CI environments behind restrictive egress may need proxy configuration.                                          |
-| OS        | Windows 10/11 x64 (primary), Linux x64 (builder), macOS 13+ (later)       | -           | Windows ARM64 requires the corresponding GN target and toolchain.                                                |
+The reviewed Aurelia first-build gate is **8 logical CPU cores, 32 GB RAM, and
+150 GB free on the exact volume that will hold Chromium**. This is deliberately
+not lowered for standard runners. `tools/ci/check-builder.mjs` checks the
+resource and Windows toolchain requirements, and the validation driver repeats
+the destination-volume and platform checks before source sync. The same 150 GB
+disk floor is enforced by `tools/chromium/sync.mjs`.
 
-These numbers are **expectations**, not measurements: nothing in this repository
-has been compiled yet. `docs/BUILDING-CHROMIUM.md` must be updated with real
-measurements (and `config/chromium_version.json` ->
-`buildRequirements.referenceBuilder`) after the first successful build. See the
-build-report artifact produced by
-`tools/ci/workflows/chromium-heavy-build-windows.yml` (deployed to `.github/workflows/` with `node tools/ci/install-workflows.mjs`, see docs/CI-SECURITY.md).
+GitHub's published public standard Windows runner is 4 vCPUs, 16 GB RAM, and
+14 GB SSD. Its exact usable space can vary; the live runner is measured rather
+than assumed. GitHub documents a Windows larger-runner tier with 8 vCPUs,
+32 GB RAM, and 300 GB SSD, but availability, labels, and billing depend on the
+organization's configuration. See [CI-BUILD-FEASIBILITY.md](CI-BUILD-FEASIBILITY.md)
+for the published-resource references, historical runner measurement, and
+preflight policy.
 
-## One-time setup
+## Validation stages
 
-### 1. Get the repository
+When the measured runner passes preflight, `tools/chromium/ci-validation.mjs`
+uses Aurelia's pinned tooling in this order:
 
-```bash
-git clone https://github.com/ankbuitv/browser.git
-cd browser
-```
+1. Sync the configured Chromium revision and pinned `depot_tools` with at most
+   four sync jobs; verify both resulting SHAs.
+2. Verify the patch set against the pristine pinned checkout, apply the patch
+   and overlay, and check the reviewed fork-delta budget.
+3. Validate the reviewed Windows GN arguments, run `gn gen`, require the
+   generated `out/Aurelia/args.gn`, then validate those effective arguments.
+4. Resolve every selected label using `gn desc`; run scoped `gn check` for the
+   two Aurelia C++ controller targets.
+5. Build `build_ts`, `build_grd`, and `resources` for both Aurelia WebUI pages;
+   verify expected TypeScript, GRIT, resource-map, and `.pak` outputs.
+6. For `targeted` and `full`, compile the two overlay `source_set` targets and
+   their C++ dependencies.
+7. For `full` only, compile Chromium's `chrome` target. This stage is reached
+   only after all previous stages in the same run pass.
 
-### 2. Check the pin
+The selected GN labels come from the checked-in Aurelia overlay and the
+`build_webui()` template at the configured Chromium pin. A missing label or
+resource output is a failure, not a warning. All Ninja invocations are capped at
+four jobs. Resource usage is sampled every 30 seconds; the process tree is
+stopped if free disk falls below the 15 GB reserve or available RAM falls below
+1.5 GB. A 330-minute internal deadline leaves time for summary and artifact
+handling under GitHub's 360-minute job timeout. Only one validation run per
+repository is allowed at a time.
 
-```bash
-node tools/chromium/cli.mjs status
-```
+## Build states and evidence
 
-You should see the pinned Chromium version and revision, the patch set, and the
-fork-delta summary.
+| State                         | Required evidence                                                                              |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
+| `INTEGRATION SOURCE VERIFIED` | Patch verification and overlay/fork-delta checks pass.                                         |
+| `CONFIGURATION VERIFIED`      | `gn gen` exits `0`, generated arguments pass policy, and selected targets resolve.             |
+| `WEBUI RESOURCES VERIFIED`    | The WebUI Ninja targets exit `0` and expected TypeScript/GRIT/pak outputs exist.               |
+| `TARGETED COMPILED`           | Both Aurelia C++ source-set Ninja targets exit `0` in `targeted` or `full` mode.               |
+| `COMPILED`                    | `autoninja ... chrome` exits `0` in explicit `full` mode in the same run.                      |
+| `RUNTIME INTEGRATED`          | Browser launches with Aurelia pages/resources available. Not established by compilation alone. |
+| `TESTED`                      | A separate runtime smoke test passes. Not currently run by `chromium-build.yml`.               |
+| `VERIFIED`                    | A supported physical Windows device passes the compatibility test.                             |
 
-### 3. Provision `depot_tools`
+Workflow step names are not evidence. The build summary records stage statuses,
+run URL, runner capabilities, pins, effective GN arguments, resource samples,
+and per-stage logs. The driver writes `PASS` only after a zero compiler exit code
+and any required stage postconditions.
 
-```bash
-git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
-export PATH="$PWD/depot_tools:$PATH"
-export DEPOT_TOOLS_UPDATE=0   # never update behind our back
-git -C depot_tools rev-parse HEAD
-```
+## Artifacts and source-tree handling
 
-Record that SHA so future builds are reproducible:
+The workflow uploads `artifacts/` only: logs, JSON resource samples, runner
+capabilities, the effective GN arguments, and Markdown/JSON summaries. It never
+caches or uploads the Chromium source tree. A browser runtime is packaged only
+after a successful full `chrome` compile, staging checks, and confirmation that
+the archive fits the 450 MiB upload budget. An oversized or otherwise ineligible
+binary is omitted and explicitly reported; the Chromium source is never
+included.
 
-```bash
-node tools/chromium/sync.mjs --record-depot-tools <sha>
-```
+The browser artifact is unsigned development output. No release is published,
+no signing secrets are used, and no security feature is weakened to make CI pass.
+The workflow does not run a smoke test or claim the browser is tested.
 
-On Windows: run these commands from a **Developer Command Prompt** (or ensure
-`gclient` has a valid Visual Studio environment - Chromium requires MSVC,
-`vswhere`, and the Windows 10/11 SDK; `gclient` will report what is missing).
+## Troubleshooting
 
-### 4. Sync the pinned checkout
+| Result                                          | Meaning / next action                                                                                                                                                                  |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BLOCKED` on `standard`                         | Expected when published or measured CPU/RAM/disk/toolchain values miss the gate. No Chromium source sync starts.                                                                       |
+| `larger` remains queued                         | Confirm the GitHub-hosted Windows runner exists, the label is exactly `windows-latest-8-cores`, its group grants this repository access, and billing is enabled. There is no fallback. |
+| `RESOURCE EXHAUSTED`                            | Inspect resource samples and the named stage log. The process tree is stopped; do not lower the reserve without review.                                                                |
+| Pin, patch, overlay, GN, or target failure      | Treat as a real failure. Inspect the stage log and review the pinned Chromium/`depot_tools` config; no fallback to a moving revision occurs.                                           |
+| `COMPILED` but no browser zip                   | The binary was too large or failed staging/postconditions. The summary explains why; this does not downgrade compiler evidence.                                                        |
+| Full compiler succeeds but smoke test is absent | Compilation is established, runtime integration is not. Run and record the separate smoke test before claiming `TESTED`.                                                               |
 
-```bash
-node tools/chromium/sync.mjs --dest /srv/aurelia-chromium --check-only   # preflight
-node tools/chromium/sync.mjs --dest /srv/aurelia-chromium --install      # sync + overlay
-```
+## Related documentation
 
-The script:
-
-1. checks free disk before doing anything destructive;
-2. ensures `depot_tools` exists (and checks out the pinned revision if recorded);
-3. writes a `.gclient` solution for `chromium/src`;
-4. runs `gclient sync --revision src@<pin> --with_branch_heads --with_tags`;
-5. **verifies `HEAD` equals the pin** and refuses to continue otherwise;
-6. with `--install`, copies the overlay into place and applies the patch set
-   with `git apply --check` first.
-
-Never build a tree that this tooling has not produced: an unpinned tree cannot
-be reproduced, and an unattributed failure wastes hours.
-
-## Building
-
-On a provisioned builder, one command runs the whole pipeline (the same stages
-the heavy-build workflow runs, in the same order):
-
-```bash
-node tools/chromium/build.mjs --dest <checkout-parent>          # full pipeline
-node tools/chromium/build.mjs --dest <checkout-parent> --dry-run # print the plan
-node tools/chromium/build.mjs --dest <checkout-parent> --skip-sync
-```
-
-It runs preflight → sync → verify patches → install overlay → fork-delta budget
-→ GN argument policy → `gn gen` → `autoninja` → stage → smoke test → record →
-package, and prints which ladder state the run reached. Nothing is skipped
-silently and no stage weakens the browser. Individual stages can be re-run with
-`--only sync`, `--only compile`, `--only smoke-test` and so on.
-
-If your machine is below the minimum above, there is one deliberate exception:
-the `LOW_RESOURCE_EXPERIMENT` path in
-[LOCAL-WINDOWS-BUILD.md](LOCAL-WINDOWS-BUILD.md). It keeps this minimum as it is
-(150 GB free, 32 GB RAM, 8 cores) and adds a second, explicitly experimental
-floor (100 GB free with a 15 GB reserve), a small-footprint GN profile
-(`config/gn/win-x64-low-resource.gn`) and a job count computed from the measured
-machine. It produces a normal development build - the sandbox, site isolation,
-TLS verification and process isolation are untouched - and it is not a
-production path.
-
-The same steps by hand, with the reviewed argument set - do not invent
-arguments per machine.
-
-```bash
-cd /srv/aurelia-chromium/src
-
-# The arguments live in config/gn/win-x64-dev.gn and are validated against an
-# allowlist by tools/chromium/gn-args.mjs before they are used.
-gn gen out/Release --args="$(node <repo>/tools/chromium/gn-args.mjs --print <repo>/config/gn/win-x64-dev.gn)"
-autoninja -C out/Release chrome
-```
-
-Windows x64 - the first target platform - from a shell in the checkout:
-
-```powershell
-$env:PATH = "$env:AURELIA_CHROMIUM_DEST\depot_tools;$env:PATH"
-$gnArgs = (node "$env:GITHUB_WORKSPACE\tools\chromium\gn-args.mjs" --print "$env:GITHUB_WORKSPACE\config\gn\win-x64-dev.gn")
-gn gen out\Release "--args=$gnArgs"
-autoninja -C out\Release chrome
-```
-
-Notes:
-
-- `config/gn/win-x64-dev.gn` is a **development Release** configuration:
-  `is_debug=false`, `is_component_build=true`, `symbol_level=1`. Every key was
-  verified to exist at the pinned Chromium revision, and the allowlist rejects
-  anything unknown, any instrumented build, and any security-relevant switch.
-- An official build (`is_official_build=true`) needs Google's toolchain, PGO
-  profiles and signing. It is not enabled here and must be a deliberate change.
-- Nothing in the configuration disables the sandbox, site isolation,
-  certificate validation or process isolation. Chromium does not expose
-  supported GN switches for those; they can only be weakened at runtime, which
-  the smoke test records explicitly.
-
-## Build state ladder (never collapse these)
-
-A step in this ladder is only earned by the evidence named next to it. A
-workflow step name is not evidence; its output is.
-
-| State                       | Earned when                                             |
-| --------------------------- | ------------------------------------------------------- |
-| INTEGRATION SOURCE VERIFIED | the patch set applies to the pristine pinned checkout   |
-| CONFIGURATION VERIFIED      | `gn gen` completes                                      |
-| COMPILED                    | `autoninja chrome` completes                            |
-| RUNTIME INTEGRATED          | the browser process launches                            |
-| TESTED                      | the smoke test passes on the packaged staging directory |
-| VERIFIED                    | a physical, supported Windows machine runs the artifact |
-
-## Stage, verify and package the artifact
-
-```bash
-# 1. Stage the complete runtime directory (fails if the browser cannot start).
-node tools/chromium/stage-runtime.mjs \
-  --out <checkout>/out/Release \
-  --dest <artifacts>/staged \
-  --aurelia-revision "$(git rev-parse HEAD)" \
-  --gn-args <checkout>/out/Release/args.gn
-
-# 2. Smoke test the staged browser - the artifact that will be shipped, not the
-#    raw build directory.
-node tools/chromium/smoke-test.mjs --binary <artifacts>/staged/chrome.exe \
-  --report <artifacts>/smoke-test.json
-
-# 3. Record the result in the manifest, then zip the staged directory.
-node tools/chromium/stage-runtime.mjs --dest <artifacts>/staged \
-  --record-smoke-test <artifacts>/smoke-test.json
-```
-
-The artifact is named `aurelia-windows-x64-dev-<aurelia-short-sha>-UNSIGNED.zip`
-and contains the complete browser directory plus `build-manifest.json` and
-`SHA256SUMS.txt`. `signed` and `productionReady` are both `false`: SmartScreen
-will warn about it, and that warning is never bypassed. The manifest records the
-Aurelia revision, Chromium version and revision, patch-set version, pinned
-`depot_tools` revision, OS, architecture, GN arguments, configuration, build
-timestamp, signing state and smoke-test state.
-
-## Runtime compatibility targets (not builders)
-
-The owner has two low-end Windows machines for runtime and compatibility
-testing. They are explicitly **not** Chromium builders:
-
-| Target          | Hardware                                                  | Purpose                                                                 |
-| --------------- | --------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `WIN10_LOW_END` | Intel i3 (4th generation), 8 GB RAM                       | does the artifact start, navigate and stay responsive on a slow machine |
-| `WIN10_LEGACY`  | ThinkPad T530, Intel 3rd-generation mobile CPU, ~6 GB RAM | older-driver and low-memory behaviour                                   |
-
-Results from these machines are what promote a build from TESTED to VERIFIED,
-and they are run by the owner after the artifact is published - never as part of
-the build job.
-
-## Verify what you built
-
-```bash
-node tools/chromium/smoke-test.mjs --binary /srv/aurelia-chromium/src/out/Aurelia/chrome
-```
-
-The smoke test launches the binary, opens `chrome://aurelia` through the
-DevTools Protocol and asserts that:
-
-- the page renders (`<aurelia-app>`, status cards);
-- both stylesheets load from the browser's own resource pak;
-- the page reports the pinned Chromium revision;
-- the binary's reported version matches the pin.
-
-It does **not** prove that every feature works. It proves the integration
-exists. Feature-level tests live in `tests/` and `docs/TESTING.md`.
-
-## Where the outputs never go
-
-- Build outputs are never committed (`.gitignore`: `out/`, `artifacts/`).
-- Chromium sources are never committed (`chromium/`, `chromium-src/`).
-- Signing material is never committed (`.github/workflows/*` never reference
-  secrets in `pull_request` events; see `docs/CI-SECURITY.md`).
-
-## Common problems
-
-| Symptom                                               | Cause                                                                           | Fix                                                                                                              |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `checkout is at <sha> but the pinned revision is ...` | tree drifted (manual `git checkout`, or a previous partial run)                 | re-run `tools/chromium/sync.mjs --dest <dir>`                                                                    |
-| `patch 0001-... does not apply`                       | upstream file moved, or the tree is not at the pin                              | verify `HEAD`; if it is at the pin, regenerate the patch (`generate-patch`) and open an issue - the anchor moved |
-| `refusing to overwrite local changes in: ...`         | the overlay was edited inside the checkout rather than in this repository       | re-clone, or copy changes back into `chromium/overlay/` first                                                    |
-| GN error about a missing target                       | the overlay was not installed, or you are building a target other than `chrome` | run `install-overlay.mjs`; build `chrome`                                                                        |
-| Out-of-memory during link                             | too many parallel links                                                         | `-j` lower, or reduce `symbol_level`                                                                             |
-
-## Continuous integration
-
-- Fast checks (no checkout): `.github/workflows/ci-fast.yml`.
-- Heavy build (self-hosted runner, nightly + manual):
-  `tools/ci/workflows/chromium-heavy-build-windows.yml`. The runner label set is
-  `[self-hosted, linux, x64, aurelia-chromium]`, and the persistent checkout
-  directory is the repository variable `AURELIA_CHROMIUM_DEST`.
-- CI security model: `docs/CI-SECURITY.md`.
-
-GitHub-hosted runners cannot build Chromium: disk and time limits make it
-fail predictably, which is why this repository deliberately does not try.
+- [GitHub-hosted build feasibility and runner specifications](CI-BUILD-FEASIBILITY.md)
+- [CI threat model and workflow permissions](CI-SECURITY.md)
+- [Testing levels and coverage](TESTING.md)
+- [Chromium pin and upstream update procedure](CHROMIUM-UPSTREAM.md)
+- [Reviewed fork-delta budget](FORK-DELTA.md)

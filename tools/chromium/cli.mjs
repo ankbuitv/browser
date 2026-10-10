@@ -267,7 +267,7 @@ function commandCheckUpdates(config) {
   console.log('');
   console.log('Reminder: nothing is merged automatically. A pin change needs');
   console.log('  1. patch verification against the candidate revision,');
-  console.log('  2. a heavy build + smoke test,');
+  console.log('  2. manual GitHub-hosted Chromium validation, then a runtime smoke test,');
   console.log('  3. maintainer review.');
   return 0;
 }

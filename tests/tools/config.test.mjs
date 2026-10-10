@@ -24,7 +24,7 @@ describe('chromium pin configuration', () => {
     expect(config.updatePolicy.allowMovingRefs).toBe(false);
   });
 
-  it('records resource requirements for the heavy builder', () => {
+  it('records resource requirements for a Chromium builder', () => {
     const config = loadConfig();
     expect(
       config.buildRequirements.referenceBuilder.freeDiskGb,

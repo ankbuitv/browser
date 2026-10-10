@@ -50,7 +50,7 @@ export const GN_ARG_POLICY = {
   concurrent_links: {
     allowed: ['1', '2'],
     reason:
-      'upstream lever for memory-constrained machines: build/toolchain/concurrent_links.gni at the pinned revision ("we often want to run fewer links at once than we do compiles, because linking is memory-intensive"). Only small explicit values are allowed, and only for the low-resource experiment - the automatic value (-1) is upstream computing it from the machine. Explicit values are incompatible with thin LTO (upstream assert), which no Aurelia configuration enables',
+      'upstream lever for memory-constrained machines: build/toolchain/concurrent_links.gni at the pinned revision ("we often want to run fewer links at once than we do compiles, because linking is memory-intensive"). Small explicit values are retained only for the retired low-resource GN policy fixture; the supported GitHub-hosted workflow does not use them. The automatic value (-1) is computed upstream. Explicit values are incompatible with thin LTO (upstream assert), which no Aurelia configuration enables',
   },
   treat_warnings_as_errors: {
     allowed: ['true', 'false'],
