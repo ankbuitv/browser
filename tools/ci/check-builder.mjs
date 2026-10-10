@@ -10,8 +10,15 @@
  * It only reads. It never installs, never changes settings, and never writes
  * outside the file named by --record.
  *
+ * Requirements depend on the validation mode:
+ *   gn               GN generation and gn check only (no compilation). Uses the
+ *                    reduced `buildRequirements.gnValidation` profile.
+ *   targeted, full   Compilation. Uses the strict `buildRequirements.referenceBuilder`
+ *                    gate (8 cores / 32 GB / 150 GB), which is never lowered.
+ *
  * Usage:
  *   node tools/ci/check-builder.mjs
+ *   node tools/ci/check-builder.mjs --mode gn
  *   node tools/ci/check-builder.mjs --dest D:\chromium
  *   node tools/ci/check-builder.mjs --record artifacts/runner-capabilities.json
  *   node tools/ci/check-builder.mjs --json
@@ -104,13 +111,94 @@ function visualStudioPath() {
   return found.length === 0 ? null : found;
 }
 
+export const PREFLIGHT_MODES = Object.freeze(['gn', 'targeted', 'full']);
+
+/** Documented fallbacks, used only when the pin configuration omits a profile. */
+const REFERENCE_BUILDER_FALLBACK = Object.freeze({
+  cpuCores: 8,
+  ramGb: 32,
+  freeDiskGb: 150,
+});
+const GN_VALIDATION_FALLBACK = Object.freeze({
+  cpuCores: 4,
+  ramGb: 15.5,
+  freeDiskGb: 150,
+});
+
+function assertRequirementProfile(profile, name) {
+  for (const key of ['cpuCores', 'ramGb', 'freeDiskGb']) {
+    const value = profile[key];
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+      throw new Error(`${name}.${key} must be a positive number; got ${value}`);
+    }
+  }
+  return profile;
+}
+
 /**
- * @returns {{ok: boolean, capabilities: object, problems: string[], notes: string[]}}
+ * Select the resource profile for a validation mode.
+ *
+ * `gn` gets the reduced GN-only profile; `targeted` and `full` always get the
+ * strict reference builder. An unknown mode throws instead of guessing.
  */
-export function checkBuilder({ dest, config, log = () => {} } = {}) {
-  const requirements = config?.buildRequirements?.referenceBuilder ??
-    // Fall back to the documented minimum, never to something smaller.
-    { cpuCores: 8, ramGb: 32, freeDiskGb: 150 };
+export function requirementsForMode(config, mode = 'full') {
+  if (mode === 'gn') {
+    return {
+      ...assertRequirementProfile(
+        config?.buildRequirements?.gnValidation ?? GN_VALIDATION_FALLBACK,
+        'gnValidation',
+      ),
+    };
+  }
+  if (mode === 'targeted' || mode === 'full') {
+    return {
+      ...assertRequirementProfile(
+        config?.buildRequirements?.referenceBuilder ??
+          REFERENCE_BUILDER_FALLBACK,
+        'referenceBuilder',
+      ),
+    };
+  }
+  throw new Error(
+    `unknown validation mode "${mode}"; choose ${PREFLIGHT_MODES.join(', ')}`,
+  );
+}
+
+/**
+ * Pure comparison of measured capabilities with a requirement profile.
+ * Returns the human-readable problems; an empty array means the resource gate passes.
+ */
+export function evaluateResources(
+  { cpuCores, ramGb, bestFreeDiskGb },
+  requirements,
+) {
+  const problems = [];
+  if (cpuCores < requirements.cpuCores) {
+    problems.push(
+      `logical cores: ${cpuCores} (needs ${requirements.cpuCores}+)`,
+    );
+  }
+  if (ramGb < requirements.ramGb) {
+    problems.push(`RAM: ${ramGb} GB (needs ${requirements.ramGb} GB+)`);
+  }
+  if (bestFreeDiskGb < requirements.freeDiskGb) {
+    problems.push(
+      `free disk: ${bestFreeDiskGb} GB (needs ${requirements.freeDiskGb} GB+ on one volume for Chromium sources, dependencies and build outputs)`,
+    );
+  }
+  return problems;
+}
+
+/**
+ * @returns {{ok: boolean, mode: string, capabilities: object, problems: string[], notes: string[], requirements: object}}
+ */
+export function checkBuilder({
+  dest,
+  config,
+  mode = 'full',
+  log = () => {},
+} = {}) {
+  const requirements = requirementsForMode(config, mode);
 
   const capabilities = {
     platform: platform(),
@@ -146,21 +234,16 @@ export function checkBuilder({ dest, config, log = () => {} } = {}) {
   );
   capabilities.freeDiskGb = best;
 
-  if (capabilities.cpuCores < requirements.cpuCores) {
-    problems.push(
-      `logical cores: ${capabilities.cpuCores} (needs ${requirements.cpuCores}+)`,
-    );
-  }
-  if (capabilities.ramGb < requirements.ramGb) {
-    problems.push(
-      `RAM: ${capabilities.ramGb} GB (needs ${requirements.ramGb} GB+)`,
-    );
-  }
-  if (best < requirements.freeDiskGb) {
-    problems.push(
-      `free disk: ${best} GB (needs ${requirements.freeDiskGb} GB+ on one volume for Chromium sources, dependencies and build outputs)`,
-    );
-  }
+  problems.push(
+    ...evaluateResources(
+      {
+        cpuCores: capabilities.cpuCores,
+        ramGb: capabilities.ramGb,
+        bestFreeDiskGb: best,
+      },
+      requirements,
+    ),
+  );
   if (capabilities.git === null) {
     problems.push('git was not found on PATH');
   }
@@ -193,6 +276,7 @@ export function checkBuilder({ dest, config, log = () => {} } = {}) {
 
   return {
     ok: problems.length === 0,
+    mode,
     capabilities,
     problems,
     notes,
@@ -213,6 +297,7 @@ if (isMain) {
     if (argv.includes('--help') || argv.includes('-h')) {
       console.log(`Measure whether this machine meets Aurelia's Chromium builder resource gate. This does not authorize compilation.
 
+  --mode <m>      gn | targeted | full (default full; gn uses the reduced GN-only profile)
   --dest <dir>    directory that will hold the Chromium checkout
                   (defaults to AURELIA_CHROMIUM_DEST, then the repo parent)
   --record <file> write the capabilities JSON (used by the build manifest)
@@ -223,6 +308,7 @@ if (isMain) {
       const { loadConfig } = await import('../chromium/lib/config.mjs');
       const result = checkBuilder({
         dest: valueOf('--dest'),
+        mode: valueOf('--mode') ?? 'full',
         config: loadConfig(),
         log: (line) => console.log(line),
       });

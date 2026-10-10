@@ -29,7 +29,11 @@ import {
 import { cpus, freemem, totalmem } from 'node:os';
 import path from 'node:path';
 
-import { checkBuilder, freeDiskGb } from '../ci/check-builder.mjs';
+import {
+  checkBuilder,
+  freeDiskGb,
+  requirementsForMode,
+} from '../ci/check-builder.mjs';
 import { isGithubHostedRunner } from '../ci/runner-environment.mjs';
 import { isMainModule } from '../lib/entry.mjs';
 import { captureCommand, resolveSpawn } from './lib/exec.mjs';
@@ -41,6 +45,12 @@ export const RUNNER_SIZES = Object.freeze(['standard', 'larger']);
 export const MAX_BUILD_JOBS = 4;
 export const RESOURCE_POLL_INTERVAL_MS = 30_000;
 export const INTERNAL_DEADLINE_MINUTES = 330;
+/**
+ * GN-only validation never compiles, so it gets a shorter internal deadline
+ * (checkout plus gn gen/check) and fewer checkout jobs on the 4-core runner.
+ */
+export const GN_DEADLINE_MINUTES = 240;
+export const GN_SYNC_JOBS = 2;
 export const MINIMUM_DISK_RESERVE_GB = 15;
 export const MINIMUM_AVAILABLE_MEMORY_GB = 1.5;
 export const MAX_BROWSER_ARTIFACT_BYTES = 450 * 1024 ** 2;
@@ -58,6 +68,96 @@ export const WEBUI_RESOURCE_TARGETS = Object.freeze([
   '//chrome/browser/resources/newtab:build_grd',
   '//chrome/browser/resources/newtab:resources',
 ]);
+
+/** Stages that compile code. gn mode skips every one of them. */
+export const COMPILE_STAGE_IDS = Object.freeze([
+  'webui-resources',
+  'targeted-cpp',
+  'full-chrome',
+  'browser-staging',
+  'browser-packaging',
+  'browser-artifact',
+]);
+
+/** Stages that prove GN configuration without compiling anything. */
+export const GN_STAGE_IDS = Object.freeze([
+  'gn-argument-policy',
+  'gn-generation',
+  'gn-effective-arguments',
+  'target-labels',
+  'gn-check',
+]);
+
+/** Checkout/sync jobs for a mode: fewer on the GN-only profile. */
+export function syncJobsForMode(mode) {
+  return mode === 'gn' ? GN_SYNC_JOBS : MAX_BUILD_JOBS;
+}
+
+/** Internal wall-clock deadline for a mode, always below the 360-minute job timeout. */
+export function deadlineMinutesForMode(mode) {
+  return mode === 'gn' ? GN_DEADLINE_MINUTES : INTERNAL_DEADLINE_MINUTES;
+}
+
+function combinedStatus(stages, ids) {
+  const statuses = ids.map((id) => stages[id]?.status ?? 'NOT TESTED');
+  if (statuses.every((status) => status === 'PASS')) {
+    return 'PASS';
+  }
+  return statuses.find((status) => status !== 'PASS' && status !== 'NOT TESTED') ?? 'NOT TESTED';
+}
+
+/**
+ * The four user-facing milestones, kept separate on purpose: a GN pass must
+ * never be reported as a compilation pass.
+ */
+export function milestoneVerdicts(stages, mode) {
+  const preflight = stages['runner-preflight']?.status ?? 'NOT TESTED';
+  const sync = stages['pinned-sync']?.status ?? 'NOT TESTED';
+  const gn = combinedStatus(stages, GN_STAGE_IDS);
+  let compilation;
+  let compilationDetail;
+  if (mode === 'gn') {
+    compilation = 'NOT TESTED';
+    compilationDetail =
+      'gn validation does not compile. WebUI resources, targeted C++, and full chrome were not built.';
+  } else if (mode === 'targeted') {
+    compilation = combinedStatus(stages, ['targeted-cpp']);
+    compilationDetail =
+      'Scope: the two Aurelia C++ source_set targets only. Full chrome was not built.';
+  } else {
+    compilation = combinedStatus(stages, ['targeted-cpp', 'full-chrome']);
+    compilationDetail =
+      'Scope: the Aurelia C++ targets and the full chrome target, both in this run.';
+  }
+  const text = (label, status) =>
+    status === 'PASS' ? `${label} PASS` : `${label} ${status}`;
+  return [
+    {
+      key: 'preflight',
+      text: text('PREFLIGHT', preflight),
+      status: preflight,
+      detail: stages['runner-preflight']?.details ?? 'Not reached.',
+    },
+    {
+      key: 'chromium-sync',
+      text: text('CHROMIUM SYNC', sync),
+      status: sync,
+      detail: stages['pinned-sync']?.details ?? 'Not reached.',
+    },
+    {
+      key: 'gn-gen',
+      text: text('GN GEN', gn),
+      status: gn,
+      detail: 'GN policy, gn gen, effective arguments, target labels, and gn check.',
+    },
+    {
+      key: 'compilation',
+      text: text('COMPILATION', compilation),
+      status: compilation,
+      detail: compilationDetail,
+    },
+  ];
+}
 
 /** C++ source_set labels declared in the Aurelia overlay BUILD.gn files. */
 export const TARGETED_CPP_TARGETS = Object.freeze([
@@ -241,6 +341,7 @@ function makeSummary({
     `- Overall status: **${overall}**`,
     `- Validation level: \`${mode}\``,
     `- Requested GitHub-hosted runner: \`${runnerSize}\``,
+    `- Resource profile: \`${mode === 'gn' ? 'gn (GN-only, reduced)' : `${mode} (strict reference builder)`}\``,
     `- Aurelia revision: \`${aureliaRevision ?? 'unknown'}\``,
     `- Chromium version: \`${config?.chromium?.version ?? 'unknown'}\``,
     `- Chromium pinned revision: \`${config?.chromium?.revision ?? 'unknown'}\``,
@@ -249,13 +350,21 @@ function makeSummary({
     '',
     '## Measured runner resources',
     '',
-    '| Resource | Measured | Minimum |',
+    '| Resource | Measured | Minimum for this mode |',
     '| --- | ---: | ---: |',
     `| Logical CPU cores | ${capabilities?.cpuCores ?? 'unknown'} | ${requirements?.cpuCores ?? 'unknown'} |`,
     `| RAM | ${formatGb(capabilities?.ramGb)} | ${requirements?.ramGb ?? 'unknown'} GB |`,
     `| Free disk on Chromium destination volume | ${formatGb(actualFree)} | ${requirements?.freeDiskGb ?? 'unknown'} GB |`,
     `| Runner environment | ${capabilities?.runnerEnvironment ?? 'unknown'} | GitHub-hosted |`,
     `| Architecture / OS | ${capabilities?.architecture ?? 'unknown'} / ${capabilities?.platform ?? 'unknown'} | Windows x64 |`,
+    '',
+    '## Milestones',
+    '',
+    '| Milestone | Result | Evidence / reason |',
+    '| --- | --- | --- |',
+    ...milestoneVerdicts(stages, mode).map(
+      (verdict) => `| ${markdownCell(verdict.text)} | **${markdownCell(verdict.status)}** | ${markdownCell(verdict.detail)} |`,
+    ),
     '',
     '## Stage results',
     '',
@@ -286,6 +395,7 @@ function writeSummary(context, overall, failure = null) {
         chromiumVersion: context.config?.chromium?.version ?? null,
         chromiumRevision: context.config?.chromium?.revision ?? null,
         depotToolsRevision: context.config?.toolchain?.depotTools?.revision ?? null,
+        milestones: milestoneVerdicts(context.stages, context.mode),
         stages: context.stages,
         failure,
         artifact: context.artifact,
@@ -417,7 +527,7 @@ export function runMonitoredCommand({
         }
         if (Date.now() >= deadlineAt) {
           requestStop(
-            `RESOURCE EXHAUSTED: internal workflow deadline reached after ${INTERNAL_DEADLINE_MINUTES} minutes`,
+            'RESOURCE EXHAUSTED: internal workflow deadline reached',
           );
         }
       } catch (error) {
@@ -429,7 +539,7 @@ export function runMonitoredCommand({
     const remainingMs = Math.max(0, deadlineAt - Date.now());
     const deadlineTimer = setTimeout(() => {
       requestStop(
-        `RESOURCE EXHAUSTED: internal workflow deadline reached after ${INTERNAL_DEADLINE_MINUTES} minutes`,
+        'RESOURCE EXHAUSTED: internal workflow deadline reached',
       );
     }, remainingMs);
     child.once('error', (error) => {
@@ -678,7 +788,7 @@ export async function runValidation({
   config = loadConfig(),
   log = console.log,
   quiet = false,
-  deadlineMinutes = INTERNAL_DEADLINE_MINUTES,
+  deadlineMinutes = null,
   pollIntervalMs = RESOURCE_POLL_INTERVAL_MS,
 } = {}) {
   if (!VALIDATION_LEVELS.includes(mode)) {
@@ -712,13 +822,22 @@ export async function runValidation({
     ),
     aureliaRevision: readAureliaRevision(),
     capabilities: null,
-    requirements: config.buildRequirements.referenceBuilder,
+    requirements: requirementsForMode(config, mode),
     artifact: { status: 'NOT TESTED', details: 'Only full mode can upload a browser binary.' },
     log,
     quiet,
     pollIntervalMs,
   };
-  const deadlineAt = Date.now() + deadlineMinutes * 60_000;
+  const deadlineAt =
+    Date.now() + (deadlineMinutes ?? deadlineMinutesForMode(mode)) * 60_000;
+  if (mode === 'gn') {
+    for (const id of COMPILE_STAGE_IDS) {
+      context.stages[id] = {
+        status: 'NOT TESTED',
+        details: 'Skipped in gn mode: GN validation never compiles.',
+      };
+    }
+  }
   writeSummary(context, 'IN PROGRESS');
 
   try {
@@ -726,10 +845,12 @@ export async function runValidation({
     const builder = checkBuilder({
       dest: resolvedDest,
       config,
+      mode,
       log: (line) => log(`runner: ${line}`),
     });
     const destinationFreeDiskGb = getDestFreeDiskGb(resolvedDest);
     const requirements = builder.requirements;
+    context.requirements = requirements;
     const problems = [...builder.problems];
     if (
       destinationFreeDiskGb === null ||
@@ -805,7 +926,7 @@ export async function runValidation({
         '--dest',
         resolvedDest,
         '--jobs',
-        String(MAX_BUILD_JOBS),
+        String(syncJobsForMode(mode)),
       ],
       cwd: REPO_ROOT,
       env: childEnv,
@@ -967,6 +1088,7 @@ export async function runValidation({
       deadlineAt,
     });
 
+    if (mode !== 'gn') {
     await runCommandStage(context, {
       id: 'webui-resources',
       label: 'Build WebUI TypeScript, GRIT resource descriptions, headers, maps, and pak files',
@@ -986,6 +1108,7 @@ export async function runValidation({
         return `All ${generated.length} expected TypeScript, GRIT, resource-map, and pak outputs exist.`;
       },
     });
+    }
 
     if (mode === 'targeted' || mode === 'full') {
       await runCommandStage(context, {
@@ -1025,7 +1148,11 @@ export async function runValidation({
     }
 
     writeSummary(context, 'PASS');
-    log(`PASS: ${mode} validation completed. Chromium compiler success is recorded only for commands that exited with code 0.`);
+    log(
+      mode === 'gn'
+        ? 'PASS: gn validation completed. GN GEN PASS only; COMPILATION NOT TESTED.'
+        : `PASS: ${mode} validation completed. Chromium compiler success is recorded only for commands that exited with code 0.`,
+    );
     return { status: 'PASS', exitCode: 0, summary: path.join(resolvedArtifacts, 'build-summary.md') };
   } catch (error) {
     const status =

@@ -19,10 +19,10 @@ The optional `larger` input selects the label `windows-latest-8-cores`; an
 organization administrator must configure a GitHub-hosted Windows runner with
 that name. See [larger-runner specifications](https://docs.github.com/en/actions/reference/runners/larger-runners).
 
-| Runner choice                        | Published resources              | Expected outcome                                                                                                                                            |
-| ------------------------------------ | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `standard` (`windows-2025`, default) | 4 vCPUs / 16 GB RAM / 14 GB SSD  | **BLOCKED** before Chromium source sync because it does not meet Aurelia's recorded 8 / 32 / 150 minimums.                                                  |
-| `larger` (`windows-latest-8-cores`)  | 8 vCPUs / 32 GB RAM / 300 GB SSD | Proceeds only if the live measurement confirms at least 150 GB free on the exact Chromium destination volume and the required Windows toolchain is present. |
+| Runner choice                        | Published resources              | Expected outcome                                                                                                                                                                                      |
+| ------------------------------------ | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `standard` (`windows-2025`, default) | 4 vCPUs / 16 GB RAM / 14 GB SSD  | `gn` runs within the reduced GN-only profile (4 cores / 15.5 GB / 150 GB free). `targeted` and `full` are **BLOCKED** before Chromium source sync because they need the strict 8 / 32 / 150 minimums. |
+| `larger` (`windows-latest-8-cores`)  | 8 vCPUs / 32 GB RAM / 300 GB SSD | Proceeds only if the live measurement confirms at least 150 GB free on the exact Chromium destination volume and the required Windows toolchain is present.                                           |
 
 Earlier runner experiments recorded different free-space totals on preinstalled
 Windows volumes. Those historical measurements are not treated as a guarantee;
@@ -39,12 +39,20 @@ conservative, reviewed first-build gate: **8 logical cores, 32 GB RAM, and
 `config/chromium_version.json`, checked by `tools/ci/check-builder.mjs`, and the
 150 GB disk floor is independently enforced by `tools/chromium/sync.mjs`.
 
+GN-only validation (`validation_level=gn`) has its own reduced profile of
+4 logical cores and 15.5 GB RAM, with the same 150 GB disk floor. It runs
+sync, patch/overlay, `gn gen`, and `gn check`, and it never compiles. Those
+GN-only results are reported as `GN GEN PASS` with `COMPILATION NOT TESTED`. They
+are not compiler evidence, and that profile does not lower the `targeted` or
+`full` gate. The reduced profile is only proven once a `gn` run completes on a
+GitHub-hosted standard runner; until then, no GN validation success is claimed.
+
 The manual workflow is `.github/workflows/chromium-build.yml` (canonical
 source: `tools/ci/workflows/chromium-build.yml`). It has no `push`,
 `pull_request`, or schedule trigger. `gn` is the default validation level;
 `targeted` and `full` require explicit selection. A standard runner records a
-`BLOCKED` result and exits before any Chromium checkout, which avoids known
-resource failures and repeated waste.
+`BLOCKED` result for `targeted` and `full` and exits before any Chromium
+checkout. It runs `gn` within the reduced profile above.
 
 When a configured larger runner is selected, each validation level is
 incremental within one job:
