@@ -142,17 +142,46 @@ The browser artifact is unsigned development output. No release is published,
 no signing secrets are used, and no security feature is weakened to make CI pass.
 The workflow does not run a smoke test or claim the browser is tested.
 
+## The Windows `git.bat` shim
+
+`depot_tools/git_cache.py` hard-codes the git program name for Windows:
+
+```python
+git_exe = "git.bat" if sys.platform.startswith("win") else "git"
+```
+
+`Mirror.GetCachePath()` then runs `git.bat config --type path cache.cachepath`
+with `subprocess.check_output` and catches **only** `CalledProcessError`, and
+`gclient_scm.GitWrapper.cache_dir` calls it for every git dependency in every
+`gclient sync` while catching **only** `RuntimeError`. Neither depot_tools nor
+Git for Windows ships a `git.bat`, so on a GitHub-hosted Windows runner the
+lookup fails with `FileNotFoundError [WinError 2]` and `gclient sync` aborts
+before the first fetch (run 38043815539).
+
+`tools/chromium/lib/windows-git.mjs` closes the gap by writing a `git.bat` into
+`<destination>/.aurelia-git-shim/` that forwards every argument to the resolved
+`git.exe` and returns its exit code. The directory is prepended to the PATH of
+the `gclient` child process only — depot_tools, the system PATH, and the
+machine are never modified, and no Chromium revision or pin is touched.
+
+The git cache is **not** disabled: with the shim in place `GetCachePath()`
+reaches its `git config` probe, gets the `CalledProcessError` it was written to
+handle, and falls back to `$GIT_CACHE_PATH` and then to `RuntimeError`, which
+`GitWrapper.cache_dir` handles. A cache directory configured later is used as
+before.
+
 ## Troubleshooting
 
-| Result                                          | Meaning / next action                                                                                                                                                                  |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BLOCKED` on `standard` with `targeted`/`full`  | Expected: the standard runner does not meet the strict 8 / 32 / 150 gate. No Chromium source sync starts. Use `gn`, or `larger` for compilation.                                       |
-| `BLOCKED` on `standard` with `gn`               | Unexpected on the measured 4-core / 16 GB / 150+ GB runner. Read the named problem in the summary; no source sync starts.                                                              |
-| `larger` remains queued                         | Confirm the GitHub-hosted Windows runner exists, the label is exactly `windows-latest-8-cores`, its group grants this repository access, and billing is enabled. There is no fallback. |
-| `RESOURCE EXHAUSTED`                            | Inspect resource samples and the named stage log. The process tree is stopped; do not lower the reserve without review.                                                                |
-| Pin, patch, overlay, GN, or target failure      | Treat as a real failure. Inspect the stage log and review the pinned Chromium/`depot_tools` config; no fallback to a moving revision occurs.                                           |
-| `COMPILED` but no browser zip                   | The binary was too large or failed staging/postconditions. The summary explains why; this does not downgrade compiler evidence.                                                        |
-| Full compiler succeeds but smoke test is absent | Compilation is established, runtime integration is not. Run and record the separate smoke test before claiming `TESTED`.                                                               |
+| Result                                              | Meaning / next action                                                                                                                                                                  |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BLOCKED` on `standard` with `targeted`/`full`      | Expected: the standard runner does not meet the strict 8 / 32 / 150 gate. No Chromium source sync starts. Use `gn`, or `larger` for compilation.                                       |
+| `BLOCKED` on `standard` with `gn`                   | Unexpected on the measured 4-core / 16 GB / 150+ GB runner. Read the named problem in the summary; no source sync starts.                                                              |
+| `larger` remains queued                             | Confirm the GitHub-hosted Windows runner exists, the label is exactly `windows-latest-8-cores`, its group grants this repository access, and billing is enabled. There is no fallback. |
+| `RESOURCE EXHAUSTED`                                | Inspect resource samples and the named stage log. The process tree is stopped; do not lower the reserve without review.                                                                |
+| Pin, patch, overlay, GN, or target failure          | Treat as a real failure. Inspect the stage log and review the pinned Chromium/`depot_tools` config; no fallback to a moving revision occurs.                                           |
+| `COMPILED` but no browser zip                       | The binary was too large or failed staging/postconditions. The summary explains why; this does not downgrade compiler evidence.                                                        |
+| Full compiler succeeds but smoke test is absent     | Compilation is established, runtime integration is not. Run and record the separate smoke test before claiming `TESTED`.                                                               |
+| `FileNotFoundError: [WinError 2]` in `git_cache.py` | `git.bat` was not resolvable. The shim in `<dest>/.aurelia-git-shim` was not created or was not on PATH. Read the `tooling:` lines in `artifacts/logs/pinned-sync.log`.                |
 
 ## Related documentation
 

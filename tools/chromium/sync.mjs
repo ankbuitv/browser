@@ -10,10 +10,11 @@
  *   1. preflight: disk space, platform, and whether depot_tools is available;
  *   2. fetch/refresh depot_tools and check out the pinned revision if one is
  *      recorded in config/chromium_version.json;
- *   3. create the gclient solution for the pinned Chromium revision and sync
- *      dependencies (branch heads and tags are only fetched with --with-refs:
- *      they cost a lot of time and disk and the pinned revision does not need
- *      them);
+ *   3. on Windows, create the `git.bat` shim depot_tools' git_cache.py needs
+ *      (see lib/windows-git.mjs), then create the gclient solution for the
+ *      pinned Chromium revision and sync dependencies (branch heads and tags
+ *      are only fetched with --with-refs: they cost a lot of time and disk and
+ *      the pinned revision does not need them);
  *   4. verify the checkout HEAD equals the pinned revision;
  *   5. optionally install the Aurelia overlay and patch set.
  *
@@ -24,13 +25,24 @@
  *   node tools/chromium/sync.mjs --record-depot-tools <sha>
  *   node tools/chromium/sync.mjs --dest C:\\chromium --with-refs   # + branch heads/tags
  */
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statfsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { REPO_ROOT, loadConfig, CONFIG_PATH } from './lib/config.mjs';
 import { installOverlay } from './install-overlay.mjs';
 import { run } from './lib/upstream.mjs';
-import { spawnCommand } from './lib/exec.mjs';
+import { spawnCommand, withPathPrefix } from './lib/exec.mjs';
+import {
+  GIT_BAT_NAME,
+  GIT_SHIM_DIR_NAME,
+  ensureWindowsGitShim,
+  executableVersion,
+  pathEntries,
+  resolveGitExecutable,
+  resolvesInPathEntries,
+  whereExecutable,
+} from './lib/windows-git.mjs';
 import { isMainModule } from '../lib/entry.mjs';
 
 const CHROMIUM_SOURCE_URL =
@@ -110,7 +122,98 @@ export function parseJobs(value) {
   return jobs;
 }
 
-export function preflight({ dest, config }) {
+/**
+ * Executable and PATH diagnostics, run against the *same* environment the
+ * gclient child process will inherit.
+ *
+ * Everything reported here is a tool path, a tool version, or a PATH entry
+ * whose name mentions git. No credential, token or URL is ever printed.
+ *
+ * @returns {{lines: string[], problems: string[]}}
+ */
+export function toolingDiagnostics({
+  depotTools = null,
+  env = process.env,
+  platform = process.platform,
+  windowsGit = null,
+  spawn = spawnSync,
+  exists = existsSync,
+} = {}) {
+  const lines = [];
+  const problems = [];
+  const entries = pathEntries(env, platform);
+
+  const git = resolveGitExecutable({ env, platform, spawn, exists });
+  if (git === null) {
+    problems.push(
+      platform === 'win32'
+        ? 'no working git.exe was found on PATH or in the Git for Windows install directories'
+        : 'no working git executable was found on PATH',
+    );
+    lines.push('git: NOT FOUND');
+  } else {
+    lines.push(`git: ${git.path} (${git.version})`);
+  }
+
+  if (platform === 'win32') {
+    const whereGit = whereExecutable('git', { env, spawn });
+    lines.push(
+      whereGit.length === 0
+        ? 'where.exe git: no matches'
+        : `where.exe git: ${whereGit.join('; ')}`,
+    );
+    // The confirmed failure: git_cache.py runs "git.bat", not "git".
+    const gitBat = resolvesInPathEntries(GIT_BAT_NAME, entries, { exists });
+    const shimNote =
+      windowsGit !== null && gitBat !== null && gitBat === windowsGit.gitBat
+        ? ` (generated shim for ${windowsGit.gitExecutable})`
+        : '';
+    lines.push(
+      `git.bat: ${gitBat ?? 'NOT RESOLVABLE from PATH'}${shimNote}`,
+    );
+  }
+
+  const python = executableVersion('python', { env, spawn });
+  lines.push(
+    `python: ${python ?? 'NOT FOUND on PATH (depot_tools bootstraps its own interpreter)'}`,
+  );
+  if (platform === 'win32') {
+    const wherePython = whereExecutable('python', { env, spawn });
+    if (wherePython.length > 0) {
+      lines.push(`where.exe python: ${wherePython.join('; ')}`);
+    }
+  }
+
+  if (depotTools !== null) {
+    const gclient = gclientExecutable(depotTools);
+    lines.push(
+      `gclient entry point: ${gclient}${exists(gclient) ? '' : ' (MISSING)'}`,
+    );
+    if (!exists(gclient)) {
+      problems.push(`the gclient entry point is missing: ${gclient}`);
+    }
+  }
+
+  const gitEntries = entries.filter((entry) =>
+    entry.toLowerCase().includes('git'),
+  );
+  lines.push(
+    gitEntries.length === 0
+      ? 'PATH entries containing "git": none'
+      : `PATH entries containing "git": ${gitEntries.join('; ')}`,
+  );
+
+  return { lines, problems };
+}
+
+export function preflight({
+  dest,
+  config,
+  env = process.env,
+  platform = process.platform,
+  spawn = spawnSync,
+  exists = existsSync,
+}) {
   const reports = [];
   const problems = [];
   const floorGb = diskFloorGb();
@@ -137,6 +240,32 @@ export function preflight({ dest, config }) {
   if (config.toolchain?.depotTools?.revision === null) {
     reports.push(
       'depot_tools revision is unresolved in config/chromium_version.json; the checkout will use whatever revision is present and must be recorded afterwards',
+    );
+  }
+
+  // Executables, checked before a single byte of Chromium is fetched so the
+  // failure names the missing tool instead of surfacing as an opaque error
+  // from inside depot_tools.
+  const git = resolveGitExecutable({ env, platform, spawn, exists });
+  if (git === null) {
+    problems.push(
+      platform === 'win32'
+        ? 'no working git.exe was found on PATH or in the Git for Windows install directories'
+        : 'git was not found on PATH',
+    );
+  } else {
+    reports.push(`git: ${git.path} (${git.version})`);
+  }
+  if (platform === 'win32' && git !== null) {
+    const gitBat = resolvesInPathEntries(
+      GIT_BAT_NAME,
+      pathEntries(env, platform),
+      { exists },
+    );
+    reports.push(
+      gitBat === null
+        ? `git.bat is not on PATH; depot_tools git_cache.py runs "git.bat" (not "git") on Windows, so a shim is created in ${GIT_SHIM_DIR_NAME} before gclient starts`
+        : `git.bat: ${gitBat}`,
     );
   }
 
@@ -214,15 +343,31 @@ export function syncCheckout({
   const depotTools = ensureDepotTools({ dest, config, log });
   writeGclientFile(dest);
 
+  // Windows only: depot_tools' git_cache.py runs "git.bat", which neither
+  // depot_tools nor Git for Windows ships. Without the shim, gclient sync
+  // dies with FileNotFoundError [WinError 2] in Mirror.GetCachePath() before
+  // the first fetch. Creating it here - inside the Chromium destination - is
+  // the fix; the git cache itself stays enabled and governed by gclient.
+  const windowsGit = ensureWindowsGitShim({ dest, env: process.env, log });
+
   // Spread the ambient environment: Windows needs SystemRoot, TEMP and
   // USERPROFILE for Python and git to work at all, and a stripped environment
   // would fail in ways that look like unrelated toolchain errors.
   const env = {
-    ...process.env,
-    PATH: `${depotTools}${path.delimiter}${process.env.PATH ?? ''}`,
+    ...withPathPrefix(process.env, depotTools, windowsGit?.directory),
     DEPOT_TOOLS_UPDATE: '0',
     GCLIENT_PY3: '1',
   };
+
+  const tooling = toolingDiagnostics({ depotTools, env, windowsGit });
+  for (const line of tooling.lines) {
+    log(`tooling: ${line}`);
+  }
+  if (tooling.problems.length > 0) {
+    throw new Error(
+      `sync tooling is incomplete; refusing to start gclient: ${tooling.problems.join('; ')}`,
+    );
+  }
 
   const srcDir = path.join(dest, 'src');
   log(`syncing Chromium at ${config.chromium.revision} (${config.chromium.version})`);

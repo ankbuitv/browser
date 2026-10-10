@@ -21,6 +21,63 @@
  * straight to `spawnSync`.
  */
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+
+/**
+ * Build a child environment whose PATH begins with `directories`.
+ *
+ * Two Windows details make a plain `{...process.env, PATH: ...}` unsafe:
+ *
+ *  - environment variable names are case-insensitive, and GitHub-hosted
+ *    Windows runners spell it `Path`. Spreading `process.env` and then
+ *    assigning `PATH` leaves *both* keys in the object, and which spelling
+ *    survives libuv's de-duplication of the child environment block is not
+ *    deterministic - so a run can silently lose depot_tools from PATH;
+ *  - prepending the same directory twice (the driver and the sync tool each
+ *    add depot_tools) makes PATH longer without adding anything.
+ *
+ * Both are handled here: only one PATH key remains, and directories already
+ * present are not repeated. Nothing outside the returned object is touched, so
+ * the ambient PATH of the machine is never modified.
+ *
+ * @returns {object} a new environment object; the input is not mutated.
+ */
+export function withPathPrefix(env, ...directories) {
+  const next = { ...env };
+  let existing = '';
+  for (const key of Object.keys(next)) {
+    if (key.toUpperCase() !== 'PATH') {
+      continue;
+    }
+    if (typeof next[key] === 'string' && existing === '') {
+      existing = next[key];
+    }
+    delete next[key];
+  }
+  const present = new Set(
+    existing
+      .split(path.delimiter)
+      .filter((entry) => entry.length > 0)
+      .map((entry) => entry.toLowerCase()),
+  );
+  const prefix = [];
+  for (const directory of directories) {
+    if (typeof directory !== 'string' || directory.length === 0) {
+      continue;
+    }
+    // Deliberately case-insensitive: Windows PATH lookups are.
+    const key = directory.toLowerCase();
+    if (present.has(key)) {
+      continue;
+    }
+    present.add(key);
+    prefix.push(directory);
+  }
+  next.PATH = [...prefix, existing]
+    .filter((value) => value.length > 0)
+    .join(path.delimiter);
+  return next;
+}
 
 /** Arguments that are safe to pass through cmd.exe without quoting. */
 const SAFE_WINDOWS_ARGUMENT = /^[A-Za-z0-9_@+=:,.\\/-]+$/;

@@ -35,6 +35,7 @@ Each level below states what it proves and - explicitly - what it does not.
 | PowerShell structural lint for `tools/**/*.ps1`                                        | `tests/tools/powershell.test.mjs`                   |
 | Windows bootstrap script invariants (modes, disk policy, no system changes)            | `tests/tools/windows-bootstrap.test.mjs`            |
 | Cross-platform child processes (Windows quoting, `cmd.exe` resolution)                 | `tests/tools/exec.test.mjs`                         |
+| Windows `git.bat` shim and pre-sync tooling diagnostics                                | `tests/tools/windows-git.test.mjs`                  |
 | Workflow policy, secret scanning, generated-file freshness, offline patch verification | `tests/tools/repository.test.mjs`                   |
 | Contrast of the declared design-token pairs                                            | `tests/design/check-contrast.test.mjs`              |
 | Workflow definitions and Windows-native-stderr handling                                | `tests/tools/workflows.test.mjs`                    |
