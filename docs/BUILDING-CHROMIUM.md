@@ -22,10 +22,10 @@ schedule, and `gn` is the default validation level.
 
 ## Dispatch inputs
 
-| Input              | Options                            | Behavior                                                                                                                                                                                               |
-| ------------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `validation_level` | `gn` (default), `targeted`, `full` | `targeted` and `full` must be chosen explicitly. Every level runs all earlier checks in the same job. `full` compiles `chrome` only after GN, WebUI resources, and targeted C++ pass in that same run. |
-| `runner_size`      | `standard` (default), `larger`     | `standard` targets GitHub-hosted `windows-2025` and is expected to report `BLOCKED` before Chromium source sync. `larger` targets the configured GitHub-hosted label `windows-latest-8-cores`.         |
+| Input              | Options                            | Behavior                                                                                                                                                                                                                                                                                                 |
+| ------------------ | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `validation_level` | `gn` (default), `targeted`, `full` | `gn` runs GN-only validation (sync, patch/overlay, `gn gen`, `gn check`) and never compiles; it is the only level that can run on the standard runner. `targeted` and `full` must be chosen explicitly. `full` compiles `chrome` only after GN, WebUI resources, and targeted C++ pass in that same run. |
+| `runner_size`      | `standard` (default), `larger`     | `standard` targets GitHub-hosted `windows-2025`. It runs `gn` within the reduced GN profile and reports `BLOCKED` for `targeted` and `full` before Chromium source sync. `larger` targets the configured GitHub-hosted label `windows-latest-8-cores`.                                                   |
 
 The organization must provision a GitHub-hosted Windows larger runner, grant
 repository access, and configure the label before `larger` can start. The
@@ -43,6 +43,28 @@ resource and Windows toolchain requirements, and the validation driver repeats
 the destination-volume and platform checks before source sync. The same 150 GB
 disk floor is enforced by `tools/chromium/sync.mjs`.
 
+### Resource profiles by validation level
+
+Requirements are selected per validation level by `tools/ci/check-builder.mjs`
+(`requirementsForMode`) from `config/chromium_version.json`:
+
+| Level              | Logical cores | RAM     | Free disk on Chromium volume | Purpose                                                        |
+| ------------------ | ------------- | ------- | ---------------------------- | -------------------------------------------------------------- |
+| `gn`               | 4             | 15.5 GB | 150 GB                       | Sync, patch/overlay, `gn gen`, `gn check`. **No compilation.** |
+| `targeted`, `full` | 8             | 32 GB   | 150 GB                       | Adds WebUI resources, targeted C++, and (`full`) `chrome`.     |
+
+The `gn` profile is a reduced, GN-only profile. It exists because GN generation
+and dependency checking do not need the compile-time memory of a full build. The
+RAM value is 15.5 GB rather than 16 GB because the OS-reported total on a nominal
+16 GB machine can be slightly below 16. The 150 GB disk floor is kept for every
+level, and the 15 GB disk reserve and 1.5 GB RAM reserve are enforced during the
+run. `targeted` and `full` remain at the strict 8 / 32 / 150 gate and are never
+lowered.
+
+Under `gn`, the checkout uses at most **2** `gclient` sync jobs and the internal
+deadline is **240** minutes. `targeted` and `full` use four sync and Ninja jobs
+and a 330-minute deadline. All levels stay below the 360-minute job timeout.
+
 GitHub's published public standard Windows runner is 4 vCPUs, 16 GB RAM, and
 14 GB SSD. Its exact usable space can vary; the live runner is measured rather
 than assumed. GitHub documents a Windows larger-runner tier with 8 vCPUs,
@@ -57,19 +79,27 @@ When the measured runner passes preflight, `tools/chromium/ci-validation.mjs`
 uses Aurelia's pinned tooling in this order:
 
 1. Sync the configured Chromium revision and pinned `depot_tools` with at most
-   four sync jobs; verify both resulting SHAs.
+   two sync jobs under `gn` and four under `targeted` and `full`; verify both
+   resulting SHAs.
 2. Verify the patch set against the pristine pinned checkout, apply the patch
    and overlay, and check the reviewed fork-delta budget.
 3. Validate the reviewed Windows GN arguments, run `gn gen`, require the
    generated `out/Aurelia/args.gn`, then validate those effective arguments.
 4. Resolve every selected label using `gn desc`; run scoped `gn check` for the
    two Aurelia C++ controller targets.
-5. Build `build_ts`, `build_grd`, and `resources` for both Aurelia WebUI pages;
-   verify expected TypeScript, GRIT, resource-map, and `.pak` outputs.
+5. For `targeted` and `full` only, build `build_ts`, `build_grd`, and `resources`
+   for both Aurelia WebUI pages; verify expected TypeScript, GRIT, resource-map,
+   and `.pak` outputs. `gn` skips this stage.
 6. For `targeted` and `full`, compile the two overlay `source_set` targets and
-   their C++ dependencies.
+   their C++ dependencies. `gn` skips this stage.
 7. For `full` only, compile Chromium's `chrome` target. This stage is reached
    only after all previous stages in the same run pass.
+
+The summary reports four separate milestones: `PREFLIGHT`, `CHROMIUM SYNC`,
+`GN GEN`, and `COMPILATION`. A `gn` run can therefore show
+`PREFLIGHT PASS`, `CHROMIUM SYNC PASS`, `GN GEN PASS`, and
+`COMPILATION NOT TESTED` together. That combination is the correct, honest
+result for GN-only validation.
 
 The selected GN labels come from the checked-in Aurelia overlay and the
 `build_webui()` template at the configured Chromium pin. A missing label or
@@ -116,7 +146,8 @@ The workflow does not run a smoke test or claim the browser is tested.
 
 | Result                                          | Meaning / next action                                                                                                                                                                  |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BLOCKED` on `standard`                         | Expected when published or measured CPU/RAM/disk/toolchain values miss the gate. No Chromium source sync starts.                                                                       |
+| `BLOCKED` on `standard` with `targeted`/`full`  | Expected: the standard runner does not meet the strict 8 / 32 / 150 gate. No Chromium source sync starts. Use `gn`, or `larger` for compilation.                                       |
+| `BLOCKED` on `standard` with `gn`               | Unexpected on the measured 4-core / 16 GB / 150+ GB runner. Read the named problem in the summary; no source sync starts.                                                              |
 | `larger` remains queued                         | Confirm the GitHub-hosted Windows runner exists, the label is exactly `windows-latest-8-cores`, its group grants this repository access, and billing is enabled. There is no fallback. |
 | `RESOURCE EXHAUSTED`                            | Inspect resource samples and the named stage log. The process tree is stopped; do not lower the reserve without review.                                                                |
 | Pin, patch, overlay, GN, or target failure      | Treat as a real failure. Inspect the stage log and review the pinned Chromium/`depot_tools` config; no fallback to a moving revision occurs.                                           |

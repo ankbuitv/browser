@@ -12,14 +12,22 @@ import { format } from 'prettier';
 
 import {
   assertPinnedRevision,
+  COMPILE_STAGE_IDS,
+  deadlineMinutesForMode,
+  GN_DEADLINE_MINUTES,
+  GN_STAGE_IDS,
+  GN_SYNC_JOBS,
   isGithubHostedRunner,
   MAX_BUILD_JOBS,
   MAX_BROWSER_ARTIFACT_BYTES,
+  milestoneVerdicts,
   parseValidationOptions,
   RESOURCE_POLL_INTERVAL_MS,
   resourceLimitReason,
   runMonitoredCommand,
+  runValidation,
   RUNNER_SIZES,
+  syncJobsForMode,
   TARGETED_CPP_TARGETS,
   VALIDATION_LEVELS,
   WEBUI_RESOURCE_OUTPUTS,
@@ -304,6 +312,149 @@ describe('pinned Chromium target and resource validation', () => {
         message: expect.stringContaining('exited with code 17'),
       });
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('GN-only validation on the standard runner', () => {
+  const passing = (ids) =>
+    Object.fromEntries(
+      ids.map((id) => [id, { status: 'PASS', details: 'ok' }]),
+    );
+
+  it('uses fewer checkout jobs and a shorter deadline only for gn', () => {
+    expect(syncJobsForMode('gn')).toBe(GN_SYNC_JOBS);
+    expect(GN_SYNC_JOBS).toBe(2);
+    expect(syncJobsForMode('targeted')).toBe(MAX_BUILD_JOBS);
+    expect(syncJobsForMode('full')).toBe(MAX_BUILD_JOBS);
+    expect(deadlineMinutesForMode('gn')).toBe(GN_DEADLINE_MINUTES);
+    expect(GN_DEADLINE_MINUTES).toBeLessThan(330);
+    expect(deadlineMinutesForMode('full')).toBe(330);
+    expect(deadlineMinutesForMode('targeted')).toBe(330);
+  });
+
+  it('reports the four milestones as separate verdicts', () => {
+    const stages = {
+      'runner-preflight': { status: 'PASS', details: 'measured' },
+      'pinned-sync': { status: 'PASS', details: 'pinned' },
+      ...passing(GN_STAGE_IDS),
+      'webui-resources': { status: 'NOT TESTED', details: 'skipped' },
+    };
+    expect(
+      milestoneVerdicts(stages, 'gn').map((verdict) => verdict.text),
+    ).toEqual([
+      'PREFLIGHT PASS',
+      'CHROMIUM SYNC PASS',
+      'GN GEN PASS',
+      'COMPILATION NOT TESTED',
+    ]);
+  });
+
+  it('never reports GN or compilation as passed when a GN stage failed', () => {
+    const stages = {
+      'runner-preflight': { status: 'PASS', details: 'measured' },
+      'pinned-sync': { status: 'PASS', details: 'pinned' },
+      ...passing(['gn-argument-policy', 'gn-generation']),
+      'gn-effective-arguments': { status: 'FAIL', details: 'policy violation' },
+    };
+    const verdicts = milestoneVerdicts(stages, 'gn');
+    expect(verdicts[2]).toMatchObject({ text: 'GN GEN FAIL', status: 'FAIL' });
+    expect(verdicts[3].text).toBe('COMPILATION NOT TESTED');
+  });
+
+  it('reports a blocked preflight without implying sync or GN ran', () => {
+    const verdicts = milestoneVerdicts(
+      { 'runner-preflight': { status: 'BLOCKED', details: 'too small' } },
+      'gn',
+    );
+    expect(verdicts.map((verdict) => verdict.text)).toEqual([
+      'PREFLIGHT BLOCKED',
+      'CHROMIUM SYNC NOT TESTED',
+      'GN GEN NOT TESTED',
+      'COMPILATION NOT TESTED',
+    ]);
+  });
+
+  it('reports compilation only for the scope that actually compiled', () => {
+    const stages = {
+      'runner-preflight': { status: 'PASS', details: '' },
+      'pinned-sync': { status: 'PASS', details: '' },
+      ...passing(GN_STAGE_IDS),
+      ...passing(['webui-resources', 'targeted-cpp']),
+    };
+    expect(milestoneVerdicts(stages, 'targeted')[3].text).toBe(
+      'COMPILATION PASS',
+    );
+    expect(milestoneVerdicts(stages, 'full')[3].text).toBe(
+      'COMPILATION NOT TESTED',
+    );
+  });
+
+  it('skips every compilation stage in gn mode at the source level', () => {
+    const gnSkip = DRIVER.indexOf("if (mode !== 'gn') {");
+    const webui = DRIVER.indexOf("id: 'webui-resources'");
+    expect(gnSkip).toBeGreaterThan(-1);
+    expect(webui).toBeGreaterThan(gnSkip);
+    expect(DRIVER.indexOf("id: 'targeted-cpp'")).toBeGreaterThan(gnSkip);
+    expect(DRIVER.indexOf("id: 'full-chrome'")).toBeGreaterThan(gnSkip);
+    expect(COMPILE_STAGE_IDS).toEqual(
+      expect.arrayContaining([
+        'webui-resources',
+        'targeted-cpp',
+        'full-chrome',
+      ]),
+    );
+    expect(DRIVER).toMatch(
+      /checkBuilder\(\{\s*dest: resolvedDest,\s*config,\s*mode,/,
+    );
+    expect(DRIVER).toContain('requirements: requirementsForMode(config, mode)');
+  });
+
+  it('blocks a non-GitHub gn run before any source sync and states the gn profile', async () => {
+    const root = tempDirectory();
+    const dest = path.join(root, 'chromium');
+    const artifacts = path.join(root, 'artifacts');
+    // Force the non-GitHub branch so the outcome does not depend on whether
+    // this test runs on a GitHub-hosted runner (which sets these variables).
+    const saved = {
+      GITHUB_ACTIONS: process.env.GITHUB_ACTIONS,
+      RUNNER_ENVIRONMENT: process.env.RUNNER_ENVIRONMENT,
+    };
+    delete process.env.GITHUB_ACTIONS;
+    delete process.env.RUNNER_ENVIRONMENT;
+    try {
+      const result = await runValidation({
+        mode: 'gn',
+        runnerSize: 'standard',
+        dest,
+        artifacts,
+        log: () => {},
+        quiet: true,
+        pollIntervalMs: 60_000,
+      });
+      expect(result.status).toBe('BLOCKED');
+      const summary = readFileSync(
+        path.join(artifacts, 'build-summary.md'),
+        'utf8',
+      );
+      expect(summary).toContain('gn (GN-only, reduced)');
+      expect(summary).toContain('PREFLIGHT BLOCKED');
+      expect(summary).toContain('CHROMIUM SYNC NOT TESTED');
+      expect(summary).toContain('COMPILATION NOT TESTED');
+      expect(summary).not.toMatch(/needs 8\+/);
+      expect(summary).not.toMatch(/needs 32 GB/);
+      expect(summary).toContain('runner environment');
+      // The source tree is never created: no sync happened.
+      expect(
+        readFileSync(path.join(artifacts, 'runner-capabilities.json'), 'utf8'),
+      ).toContain('"validationLevel": "gn"');
+      expect(() => readFileSync(path.join(dest, 'src', '.gclient'))).toThrow();
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
       rmSync(root, { recursive: true, force: true });
     }
   });
