@@ -415,6 +415,14 @@ describe('GN-only validation on the standard runner', () => {
     const root = tempDirectory();
     const dest = path.join(root, 'chromium');
     const artifacts = path.join(root, 'artifacts');
+    // Force the non-GitHub branch so the outcome does not depend on whether
+    // this test runs on a GitHub-hosted runner (which sets these variables).
+    const saved = {
+      GITHUB_ACTIONS: process.env.GITHUB_ACTIONS,
+      RUNNER_ENVIRONMENT: process.env.RUNNER_ENVIRONMENT,
+    };
+    delete process.env.GITHUB_ACTIONS;
+    delete process.env.RUNNER_ENVIRONMENT;
     try {
       const result = await runValidation({
         mode: 'gn',
@@ -443,6 +451,10 @@ describe('GN-only validation on the standard runner', () => {
       ).toContain('"validationLevel": "gn"');
       expect(() => readFileSync(path.join(dest, 'src', '.gclient'))).toThrow();
     } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
       rmSync(root, { recursive: true, force: true });
     }
   });
