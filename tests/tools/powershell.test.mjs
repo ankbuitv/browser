@@ -51,12 +51,13 @@ describe('the repository scripts', () => {
     expect(text).toContain('#Requires -Version 5.1');
   });
 
-  it('never spawns the build tools itself', () => {
+  it('does not spawn local tools and directs users to the hosted workflow', () => {
     const text = readFileSync(path.join(REPO_ROOT, SCRIPT), 'utf8');
     for (const tool of ['gclient', 'gn', 'autoninja', 'ninja']) {
       expect(text).not.toMatch(new RegExp(`&\\s+${tool}\\b`));
     }
-    expect(text).toContain('build.mjs');
+    expect(text).toContain('.github/workflows/chromium-build.yml');
+    expect(text).toContain('exit 1');
   });
 });
 

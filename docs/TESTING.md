@@ -74,7 +74,7 @@ _Proves:_ the patch targets that revision and applies cleanly to unmodified
 upstream files. _Does not prove:_ compilation (a GN dependency or a C++
 signature could still be wrong).
 
-### 4. Runtime smoke test (heavy builder) - proves integration
+### 4. Runtime smoke test (after compilation) - proves integration
 
 `node tools/chromium/smoke-test.mjs --binary <built browser>`:
 
@@ -153,22 +153,21 @@ build before an MVP claim; results are posted in the issue, not assumed.
 
 ## CI mapping
 
-| Level                   | Where                                                 | Trigger                        |
-| ----------------------- | ----------------------------------------------------- | ------------------------------ |
-| 1 Unit tests            | `.github/workflows/ci-fast.yml`                       | every push/PR                  |
-| 2 Repository invariants | `.github/workflows/ci-fast.yml`                       | every push/PR                  |
-| 3 Patch verification    | `.github/workflows/ci-fast.yml`                       | every push/PR                  |
-| 4 Runtime smoke test    | `tools/ci/workflows/chromium-heavy-build-windows.yml` | nightly + manual (self-hosted) |
-| 5 Feature tests         | same as 4, per feature                                | as implemented                 |
-| 6 Privacy/network tests | same as 4                                             | as implemented                 |
+| Level                               | Where                                                                                  | Trigger / status                                                           |
+| ----------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| 1 Unit tests                        | `.github/workflows/ci-fast.yml`                                                        | Every push/PR                                                              |
+| 2 Repository invariants             | `.github/workflows/ci-fast.yml`                                                        | Every push/PR                                                              |
+| 3 Patch verification                | `.github/workflows/ci-fast.yml`                                                        | Every push/PR                                                              |
+| 4 Pinned Chromium build checks      | `.github/workflows/chromium-build.yml`                                                 | Manual only; larger GitHub-hosted runner required to pass preflight        |
+| 5 Runtime smoke test                | `tools/chromium/smoke-test.mjs`                                                        | Not run by the validation workflow yet; require a successful browser build |
+| 6 Feature and privacy/network tests | Per-feature browser test plans in this document and the corresponding design documents | Not run until a Chromium build exists                                      |
 
 ## Coverage expectations
 
-**Nothing here executes the build.** The Windows bootstrap path
-(`tools/windows/bootstrap-build.ps1`), `sync.mjs`, `gn gen` and `autoninja` have
-unit tests for their plans and policies, but no automated test in this repository
-has run them end to end: that requires a provisioned machine, and the results
-belong in [LOCAL-WINDOWS-BUILD.md](LOCAL-WINDOWS-BUILD.md) and
+**Nothing here compiles Chromium.** The local Windows bootstrap is retired;
+the remaining checkout/build-plan tools have unit tests for their policies but
+have not run end to end. Full Chromium validation is manual-only on a measured
+GitHub-hosted runner. Record the actual run evidence in
 [PROJECT-STATUS.md](PROJECT-STATUS.md), not in a test assertion.
 
 Coverage percentage is not a goal. The expectations are:

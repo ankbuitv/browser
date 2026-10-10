@@ -17,7 +17,7 @@ patched-up copy of a Chromium subsystem.
 > `node tools/chromium/cli.mjs verify-patches --online`.
 > **The tree has not been compiled yet** - there is no buildable builder in the
 > scaffolding environment. See [Status](#status) at the bottom of this file and
-> `tools/ci/workflows/chromium-heavy-build-windows.yml`.
+> `.github/workflows/chromium-build.yml`.
 
 ## Measured delta
 
@@ -115,11 +115,14 @@ not compilation or runtime evidence; see [M1 finalization audit](M1-FINALIZATION
 | `chrome://aurelia` runs in a built browser                    | **NOT VERIFIED** |
 
 `NOT VERIFIED` here means exactly that: no evidence exists yet, and no claim of
-integration is made. The heavy build workflow exists to produce that evidence;
-its output must be attached to the milestone issue before M1 is called done.
+integration is made. The manual GitHub-hosted validation workflow can provide
+compiler evidence; a successful compile alone does not prove runtime integration.
+Attach the build summary and a separate smoke-test result to the milestone issue
+before M1 is called done.
 
 ## Update procedure
 
 See [CHROMIUM-UPSTREAM.md](CHROMIUM-UPSTREAM.md#update-procedure). Summary:
-detect → open issue → regenerate and verify the patch set → heavy build +
-smoke test → maintainer merge. Nothing merges automatically.
+detect → open issue → regenerate and verify the patch set → dispatch
+GitHub-hosted Chromium validation → run and attach a separate smoke test →
+maintainer merge. Nothing merges automatically.

@@ -1,82 +1,38 @@
 # Building Aurelia Browser
 
-This is the short version. The authoritative, detailed guide is
-**[docs/BUILDING-CHROMIUM.md](docs/BUILDING-CHROMIUM.md)**.
+The authoritative guide is [docs/BUILDING-CHROMIUM.md](docs/BUILDING-CHROMIUM.md).
 
-> **Reality check:** building the browser requires a machine with roughly
-> **8+ CPU cores, 32 GB RAM and 150 GB free disk**. It cannot be done on a
-> laptop with limited space, in a small container, or on a GitHub-hosted CI
-> runner. That is why this repository separates _fast checks_ (seconds) from the
-> _heavy build_ (hours, self-hosted).
-
-## 1. Working on Aurelia's own code (no Chromium needed)
+## Work on Aurelia code without Chromium
 
 ```bash
-git clone https://github.com/ankworks/aurelia.git
-cd aurelia
 npm ci
-
-npm test                          # unit tests
-node tools/ci/fast-checks.mjs     # repository invariants
+npm test
+node tools/ci/fast-checks.mjs
 node tools/chromium/cli.mjs status
-node tools/chromium/cli.mjs verify-patches --online   # the delta still applies
+node tools/chromium/cli.mjs verify-patches --online
 ```
 
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full set of commands,
-including the UI development harness.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the UI development harness
+and other repository tooling.
 
-## 2. Building the browser
+## Chromium validation and compilation
 
-### Prerequisites
+Chromium validation is **manual-only** in
+`.github/workflows/chromium-build.yml`. It runs on GitHub-hosted Windows x64
+runners and offers `gn` (default), `targeted`, and explicitly selected `full`
+levels. `full` re-runs the earlier checks in the same job and reaches
+`autoninja chrome` only if those checks pass.
 
-| Requirement      | Detail                                                                                                    |
-| ---------------- | --------------------------------------------------------------------------------------------------------- |
-| OS               | Windows 10/11 x64 (primary), Linux x64 (builder)                                                          |
-| CPU / RAM / disk | 8+ cores / 32 GB / 150 GB free (300 GB+ recommended)                                                      |
-| Toolchain        | `depot_tools`, GN, Ninja (`autoninja`), and on Windows: Visual Studio with the C++ workload + Windows SDK |
-| Node.js          | Only for repository tooling — never a browser runtime dependency                                          |
+The standard `windows-2025` runner is expected to be blocked before Chromium
+source sync: Aurelia requires 8 CPU cores, 32 GB RAM, and 150 GB free on the
+Chromium destination volume. An eligible organization must configure the
+GitHub-hosted Windows larger-runner label `windows-latest-8-cores`; the workflow
+measures actual resources and never falls back silently. See
+[docs/CI-BUILD-FEASIBILITY.md](docs/CI-BUILD-FEASIBILITY.md) for runner specs and
+[docs/BUILDING-CHROMIUM.md](docs/BUILDING-CHROMIUM.md) for stages, evidence,
+artifacts, and troubleshooting.
 
-### Steps
-
-```bash
-# 1. get the pinned checkout + install Aurelia's overlay and patch
-node tools/chromium/sync.mjs --dest /srv/aurelia-chromium --check-only
-node tools/chromium/sync.mjs --dest /srv/aurelia-chromium --install
-
-# 2. configure and build
-cd /srv/aurelia-chromium/src
-gn gen out/Aurelia --args='is_component_build=true symbol_level=1'
-autoninja -C out/Aurelia -j"$(nproc)" chrome
-
-# 3. verify what you built
-node <repo>/tools/chromium/smoke-test.mjs --binary out/Aurelia/chrome
-```
-
-`is_component_build=true` is fast but **not** a release build. Release-style
-builds use `is_official_build=true is_component_build=false`.
-
-### The pin is not optional
-
-The tree must be at the exact revision in `config/chromium_version.json`.
-`sync.mjs` verifies `HEAD` and refuses to continue otherwise; `install-overlay.mjs`
-refuses to overwrite local edits. Never build an unpinned tree — it cannot be
-reproduced, and a failure then proves nothing.
-
-## 3. Unsigned builds
-
-There is no code-signing certificate yet. Any build you produce is **unsigned**
-and will trigger operating-system warnings. Label it accordingly, do not
-redistribute it as a release, and never instruct users to bypass SmartScreen. See
-[docs/RELEASE.md](docs/RELEASE.md).
-
-## 4. Troubleshooting
-
-| Symptom                                             | Fix                                                                                            |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `checkout is at ... but the pinned revision is ...` | re-run `sync.mjs --dest <dir>`                                                                 |
-| `patch ... does not apply`                          | confirm `HEAD` is the pin; if it is, the anchor moved — regenerate the patch and open an issue |
-| `refusing to overwrite local changes in ...`        | move your edits into `chromium/overlay/` in this repository first                              |
-| GN error about a missing target                     | overlay not installed, or you are building a target other than `chrome`                        |
-| Link step runs out of memory                        | lower `-j`, or reduce `symbol_level`                                                           |
-
-Full troubleshooting table: [docs/BUILDING-CHROMIUM.md](docs/BUILDING-CHROMIUM.md#common-problems).
+All Chromium compilation must run on GitHub-hosted Actions runners. Local and
+self-hosted compilation is blocked by the build tooling. No successful
+Chromium compilation or runtime smoke test has been recorded yet; neither may
+be claimed until its required compiler/run evidence exists.

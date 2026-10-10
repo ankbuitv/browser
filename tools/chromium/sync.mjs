@@ -20,6 +20,7 @@
  * Usage:
  *   node tools/chromium/sync.mjs --dest C:\\chromium --install
  *   node tools/chromium/sync.mjs --dest /srv/chromium --check-only
+ *   node tools/chromium/sync.mjs --dest /srv/chromium --jobs 4
  *   node tools/chromium/sync.mjs --record-depot-tools <sha>
  *   node tools/chromium/sync.mjs --dest C:\\chromium --with-refs   # + branch heads/tags
  */
@@ -31,7 +32,6 @@ import { installOverlay } from './install-overlay.mjs';
 import { run } from './lib/upstream.mjs';
 import { spawnCommand } from './lib/exec.mjs';
 import { isMainModule } from '../lib/entry.mjs';
-import { EXPERIMENT_DISK, LOW_RESOURCE_MODE } from './low-resource.mjs';
 
 const CHROMIUM_SOURCE_URL =
   'https://chromium.googlesource.com/chromium/src.git';
@@ -39,25 +39,17 @@ const CHROMIUM_SOURCE_URL =
 /** Minimum free space in GB before we even try: source + deps + build output. */
 export const MINIMUM_FREE_DISK_GB = 150;
 
-/**
- * Disk floor for LOW_RESOURCE_EXPERIMENT runs.
- *
- * The documented builder minimum (150 GB) is never lowered: this is a *second*
- * floor that only applies when the caller passes --low-resource-experiment, and
- * it comes from the same policy module the bootstrap script uses
- * (tools/chromium/low-resource.mjs) so the numbers change in one place only.
- */
-export function diskFloorGb({ lowResourceExperiment = false } = {}) {
-  return lowResourceExperiment
-    ? EXPERIMENT_DISK.hardMinimumFreeGb
-    : MINIMUM_FREE_DISK_GB;
+/** The pinned checkout always requires the reviewed 150 GB free-disk floor. */
+export function diskFloorGb() {
+  return MINIMUM_FREE_DISK_GB;
 }
 
 /**
  * Free space in GB, cross-platform.
  *
  * `fs.statfsSync` is used first because it works on Linux, macOS and Windows
- * (the heavy builder is a native Windows runner, where `df` does not exist).
+ * (the supported Chromium build workflow uses a native Windows runner, where
+ * `df` does not exist).
  * `df` remains as a fallback for filesystems statfs cannot report.
  */
 export function freeDiskGb(targetPath) {
@@ -88,10 +80,40 @@ export function gclientExecutable(depotTools) {
   );
 }
 
-export function preflight({ dest, config, lowResourceExperiment = false }) {
+/** Build the exact gclient arguments, with bounded sync concurrency if set. */
+export function gclientSyncArgs({ revision, withRefs = false, jobs = null } = {}) {
+  if (jobs !== null && (!Number.isInteger(jobs) || jobs < 1 || jobs > 32)) {
+    throw new Error('--jobs must be an integer from 1 through 32');
+  }
+  const args = ['sync'];
+  if (jobs !== null) {
+    args.push('--jobs', String(jobs));
+  }
+  args.push('--revision', `src@${revision}`);
+  if (withRefs) {
+    args.push('--with_branch_heads', '--with_tags');
+  }
+  return args;
+}
+
+export function parseJobs(value) {
+  if (value === undefined) {
+    return null;
+  }
+  if (!/^\d+$/.test(value)) {
+    throw new Error('--jobs must be an integer from 1 through 32');
+  }
+  const jobs = Number(value);
+  if (!Number.isInteger(jobs) || jobs < 1 || jobs > 32) {
+    throw new Error('--jobs must be an integer from 1 through 32');
+  }
+  return jobs;
+}
+
+export function preflight({ dest, config }) {
   const reports = [];
   const problems = [];
-  const floorGb = diskFloorGb({ lowResourceExperiment });
+  const floorGb = diskFloorGb();
 
   let probePath = dest;
   while (!existsSync(probePath) && probePath !== path.dirname(probePath)) {
@@ -99,25 +121,17 @@ export function preflight({ dest, config, lowResourceExperiment = false }) {
   }
   try {
     const freeGb = freeDiskGb(probePath);
-    const ok = freeGb >= floorGb;
-    if (lowResourceExperiment) {
-      reports.push(
-        `free disk at ${probePath}: ${freeGb.toFixed(1)} GB (${LOW_RESOURCE_MODE} floor ${floorGb} GB; about ${EXPERIMENT_DISK.estimatedFootprintGb} GB used, ${EXPERIMENT_DISK.safetyReserveGb} GB reserve never filled)`,
-      );
-    } else {
-      reports.push(
-        `free disk at ${probePath}: ${freeGb.toFixed(1)} GB (need >= ${floorGb} GB)`,
-      );
-    }
-    if (!ok) {
+    reports.push(
+      `free disk at ${probePath}: ${freeGb.toFixed(1)} GB (need >= ${floorGb} GB)`,
+    );
+    if (freeGb < floorGb) {
       problems.push(
-        lowResourceExperiment
-          ? `insufficient free disk: ${freeGb.toFixed(1)} GB available, ${floorGb} GB required for ${LOW_RESOURCE_MODE} (about ${EXPERIMENT_DISK.estimatedFootprintGb} GB footprint plus a ${EXPERIMENT_DISK.safetyReserveGb} GB reserve)`
-          : `insufficient free disk: ${freeGb.toFixed(1)} GB available, ${floorGb} GB required`,
+        `insufficient free disk: ${freeGb.toFixed(1)} GB available, ${floorGb} GB required`,
       );
     }
   } catch (error) {
     reports.push(`free disk: could not determine (${error.message})`);
+    problems.push(`free disk could not be determined for ${probePath}; refusing to sync`);
   }
 
   if (config.toolchain?.depotTools?.revision === null) {
@@ -185,11 +199,11 @@ export function syncCheckout({
   dest,
   install = false,
   withRefs = false,
-  lowResourceExperiment = false,
+  jobs = null,
   config,
   log = console.log,
 }) {
-  const preflightResult = preflight({ dest, config, lowResourceExperiment });
+  const preflightResult = preflight({ dest, config });
   for (const report of preflightResult.reports) {
     log(`preflight: ${report}`);
   }
@@ -217,14 +231,11 @@ export function syncCheckout({
     // arbitrary object, but every host serves the history the pin lives in.
     run('git', ['-C', srcDir, 'fetch', '--prune', 'origin']);
   }
-  const syncArgs = [
-    'sync',
-    '--revision',
-    `src@${config.chromium.revision}`,
-  ];
-  if (withRefs) {
-    syncArgs.push('--with_branch_heads', '--with_tags');
-  }
+  const syncArgs = gclientSyncArgs({
+    revision: config.chromium.revision,
+    withRefs,
+    jobs,
+  });
   // Streamed, not captured: a sync takes tens of minutes and writes progress
   // the operator wants to see. On Windows this goes through cmd.exe
   // (lib/exec.mjs) because `gclient` is `gclient.bat` there.
@@ -288,17 +299,21 @@ function main(argv) {
     return 0;
   }
 
+  if (argv.includes('--low-resource-experiment')) {
+    throw new Error('LOW_RESOURCE_EXPERIMENT is retired; Chromium sync always requires 150 GB free disk');
+  }
+
   const dest = valueOf('--dest') ?? process.env.AURELIA_CHROMIUM_DEST;
   if (dest === undefined) {
     throw new Error('--dest <directory> is required (or set AURELIA_CHROMIUM_DEST)');
   }
+  if (argv.includes('--jobs') && valueOf('--jobs') === undefined) {
+    throw new Error('--jobs requires a number from 1 through 32');
+  }
+  const jobs = parseJobs(valueOf('--jobs'));
 
   if (argv.includes('--check-only')) {
-    const preflightResult = preflight({
-      dest,
-      config,
-      lowResourceExperiment: argv.includes('--low-resource-experiment'),
-    });
+    const preflightResult = preflight({ dest, config });
     for (const report of preflightResult.reports) {
       console.log(`preflight: ${report}`);
     }
@@ -312,7 +327,7 @@ function main(argv) {
     dest,
     install: argv.includes('--install'),
     withRefs: argv.includes('--with-refs'),
-    lowResourceExperiment: argv.includes('--low-resource-experiment'),
+    jobs,
     config,
   });
   console.log(`ready: ${result.srcDir} at ${result.head}`);

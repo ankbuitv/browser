@@ -131,14 +131,17 @@ describe('environment verdict', () => {
     expect(verdict.problems.join(' ')).toContain('RAM');
     expect(verdict.problems.join(' ')).toContain('logical core');
     expect(verdict.problems.join(' ')).toContain('150 GB');
-    expect(verdict.problems.join(' ')).toContain('-LowResourceExperiment');
+    expect(verdict.problems.join(' ')).toContain(
+      'the former LOW_RESOURCE_EXPERIMENT is retired',
+    );
   });
 
-  it('continues on the same machine with the experiment switch', () => {
+  it('estimates the retired experiment mode without authorizing a build', () => {
     const verdict = evaluateEnvironment(lowResourceMachine(), {
       experimentMode: true,
     });
     expect(verdict.ok).toBe(true);
+    expect(verdict.buildAuthorized).toBe(false);
     expect(verdict.mode).toBe(LOW_RESOURCE_MODE);
     expect(verdict.problems).toEqual([]);
     expect(verdict.warnings.join(' ')).toContain('logical core');
@@ -259,7 +262,10 @@ describe('report', () => {
     const report = formatReport(machine, verdict);
     expect(report).toContain(`${EXPERIMENT_DISK.hardMinimumFreeGb} GB free`);
     expect(report).toContain('reserve never filled');
-    expect(report).toContain('VERDICT: may proceed');
+    expect(report).toContain(
+      'RESOURCE CHECK: requirements met; this legacy report does not authorize a build.',
+    );
+    expect(verdict.buildAuthorized).toBe(false);
     expect(report).toContain('2 physical / 4 logical');
     expect(report).toContain(`autoninja -j ${verdict.jobs}`);
   });
@@ -269,7 +275,10 @@ describe('report', () => {
     const verdict = evaluateEnvironment(machine);
     const report = formatReport(machine, verdict);
     expect(report).toContain('documented builder minimum');
-    expect(report).toContain('VERDICT: refused');
+    expect(report).toContain(
+      'RESOURCE CHECK: requirements not met; no Chromium sync or build is authorized.',
+    );
+    expect(verdict.buildAuthorized).toBe(false);
   });
 });
 
@@ -294,7 +303,7 @@ describe('command line', () => {
   it('exits 1 for a below-reference machine without the switch', () => {
     const result = run(['--environment', lowResourceFile]);
     expect(result.status).toBe(1);
-    expect(result.stdout).toContain('-LowResourceExperiment');
+    expect(result.stdout).toContain('no Chromium sync or build is authorized');
   });
 
   it('exits 0 for the same machine with the switch', () => {

@@ -1,37 +1,26 @@
 #!/usr/bin/env node
 /**
- * LOW_RESOURCE_EXPERIMENT: the policy for attempting the first Aurelia
- * Chromium build on a machine that is *below* the documented builder minimum.
+ * Retired LOW_RESOURCE_EXPERIMENT resource estimator.
  *
- * The documented minimum is 8+ logical cores, 32 GB RAM and 150 GB free on one
- * NTFS volume (docs/BUILDING-CHROMIUM.md, config/chromium_version.json). It is
- * not lowered by this file: this is a second, explicitly experimental floor for
- * one purpose - getting a real browser out of a machine the owner actually has
- * (an Intel i3-4130 class CPU with 8 GB RAM) - and it is honest about what it
- * does and does not change.
+ * This module remains for historical policy tests and resource estimates only.
+ * It does not authorize Chromium source sync or compilation. The only supported
+ * Chromium compile path is the manual GitHub-hosted workflow, which enforces
+ * the reviewed 8-core / 32-GB RAM / 150-GB free-disk gate.
  *
- * What the experiment changes:
- *   - RAM and CPU below the reference minimum become *warnings*, as long as the
- *     machine is still capable of compiling at all (a floor of 6 GB RAM and
- *     2 logical cores, below which a Chromium build is not a sensible claim);
- *   - the number of parallel compile jobs is computed from measured RAM and
- *     logical cores (`planJobs`) instead of being left to ninja's default;
- *   - a disk profile with a smaller footprint and a hard reserve is used.
+ * The historical model is retained for tests only: it estimates lower
+ * compile-job counts and the former reduced disk profile. It never authorizes
+ * a build, never changes security-relevant settings, and never lowers the
+ * supported workflow's 8-core / 32-GB RAM / 150-GB free-disk gate.
  *
- * What it never changes: the sandbox, site isolation, TLS verification, process
- * isolation, the GN argument allowlist, the patch set, the pin, or the claim
- * that anything is verified. Disk insufficiency is a hard stop in both modes,
- * because filling a person's disk is not an acceptable failure mode.
- *
- * Everything here is a pure function of a JSON environment report, so it is
- * unit-tested on CI and the PowerShell bootstrap script only has to gather
- * facts and print the verdict.
+ * Everything here is a pure function of a JSON environment report and is kept
+ * unit-tested. The local PowerShell bootstrap entry point is retired.
  *
  * Usage:
  *   node tools/chromium/low-resource.mjs --environment <file> [--json]
  *   node tools/chromium/low-resource.mjs --environment <file> --low-resource-experiment
  *
- * Exit codes: 0 may proceed, 1 problems exist, 2 usage/parse error.
+ * Exit codes: 0 resource requirements are met (not build authorization),
+ * 1 resource problems exist, 2 usage/parse error.
  */
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -53,7 +42,7 @@ export const REFERENCE_BUILDER = {
  * item, a component build's object files and the intermediate link files come
  * second, and temporary files, logs and Windows' own working room come third.
  * They are deliberately generous; after the first real run the numbers must be
- * replaced with what actually happened (see docs/LOCAL-WINDOWS-BUILD.md).
+ * treated only as legacy estimates; they do not lower the supported CI gate.
  */
 export const EXPERIMENT_DISK = {
   estimatedFootprintGb: 85,
@@ -274,7 +263,7 @@ export function evaluateEnvironment(environment = {}, { experimentMode = false }
       warnings.push(`${message}; the schedule will use at most half of them`);
     } else {
       problems.push(
-        `${message}; re-run with -LowResourceExperiment to attempt a build anyway`,
+        `${message}; the former LOW_RESOURCE_EXPERIMENT is retired and does not authorize a build`,
       );
     }
   }
@@ -284,7 +273,7 @@ export function evaluateEnvironment(environment = {}, { experimentMode = false }
       warnings.push(message);
     } else {
       problems.push(
-        `${message}; re-run with -LowResourceExperiment to attempt a build anyway`,
+        `${message}; the former LOW_RESOURCE_EXPERIMENT is retired and does not authorize a build`,
       );
     }
   }
@@ -335,6 +324,7 @@ export function evaluateEnvironment(environment = {}, { experimentMode = false }
   return {
     mode: experiment ? LOW_RESOURCE_MODE : 'reference-builder',
     ok: problems.length === 0,
+    buildAuthorized: false,
     problems,
     warnings,
     notes,
@@ -364,8 +354,11 @@ export function formatReport(environment, verdict) {
   const pagefile = environment.pagefile ?? {};
   const lines = [];
 
-  lines.push('Aurelia - low-resource build preflight');
-  lines.push('=====================================');
+  lines.push('Aurelia - retired low-resource resource estimate');
+  lines.push('==================================================');
+  lines.push('This report does not authorize Chromium source sync or compilation.');
+  lines.push('Use the manual GitHub-hosted workflow for all Chromium validation.');
+  lines.push('');
   lines.push(`mode:            ${verdict.mode}`);
   lines.push(`destination:     ${environment.dest ?? 'unknown'}`);
   lines.push(
@@ -414,8 +407,8 @@ export function formatReport(environment, verdict) {
     `long paths:      ${tooling.longPathsEnabled === true ? 'enabled' : tooling.longPathsEnabled === false ? 'DISABLED (LongPathsEnabled)' : 'unknown (LongPathsEnabled)'}`,
   );
   lines.push('');
-  lines.push('Build plan');
-  lines.push('----------');
+  lines.push('Historical resource estimate (not executable)');
+  lines.push('---------------------------------------------');
   lines.push(
     `disk policy:     need ${verdict.disk.floorGb} GB free${
       verdict.disk.estimatedFootprintGb === null
@@ -436,7 +429,7 @@ export function formatReport(environment, verdict) {
     }
   }
   if (verdict.warnings.length > 0) {
-    lines.push('Warnings (the build can run, but read these):');
+    lines.push('Warnings (resource notes only; no build is authorized):');
     for (const warning of verdict.warnings) {
       lines.push(`  ! ${warning}`);
     }
@@ -447,17 +440,14 @@ export function formatReport(environment, verdict) {
       lines.push(`  i ${note}`);
     }
   }
+  lines.push('');
   if (verdict.problems.length === 0) {
-    lines.push('');
     lines.push(
-      verdict.mode === LOW_RESOURCE_MODE
-        ? 'VERDICT: may proceed as LOW_RESOURCE_EXPERIMENT - a best-effort build, not a supported one.'
-        : 'VERDICT: may proceed on the documented reference builder.',
+      'RESOURCE CHECK: requirements met; this legacy report does not authorize a build.',
     );
   } else {
-    lines.push('');
     lines.push(
-      'VERDICT: refused - fix the problems above, then run this check again.',
+      'RESOURCE CHECK: requirements not met; no Chromium sync or build is authorized.',
     );
   }
   return lines.join('\n');
@@ -474,14 +464,17 @@ if (isMain) {
 
   try {
     if (argv.includes('--help') || argv.includes('-h')) {
-      console.log(`LOW_RESOURCE_EXPERIMENT policy for the local Windows build path.
+      console.log(`Retired low-resource Windows resource estimator (no build authorization).
 
-  --environment <file>        JSON report written by tools/windows/bootstrap-build.ps1
-  --low-resource-experiment   apply the experimental floor (RAM/CPU become warnings)
-  --json                      print the machine-readable verdict instead of the report
-  --requirements              print what the machine has to provide
+  --environment <file>        JSON resource report
+  --low-resource-experiment   calculate the historical experimental floor
+  --json                      print the machine-readable estimate
+  --requirements              print historical resource requirements
 
-Exit codes: 0 may proceed, 1 problems exist, 2 usage or parse error.`);
+This utility does not sync or compile Chromium. Use the manual GitHub-hosted
+workflow for validation and compilation.
+
+Exit codes: 0 resource requirements are met, 1 problems exist, 2 usage or parse error.`);
       process.exitCode = 0;
     } else if (argv.includes('--requirements')) {
       for (const entry of REQUIRED_SOFTWARE) {

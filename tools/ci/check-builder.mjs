@@ -16,7 +16,7 @@
  *   node tools/ci/check-builder.mjs --record artifacts/runner-capabilities.json
  *   node tools/ci/check-builder.mjs --json
  *
- * Exit codes: 0 the machine can build, 1 it cannot, 2 the check itself failed.
+ * Exit codes: 0 the resource/toolchain gate passes, 1 it fails, 2 the check itself failed.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, statfsSync, writeFileSync } from 'node:fs';
@@ -158,7 +158,7 @@ export function checkBuilder({ dest, config, log = () => {} } = {}) {
   }
   if (best < requirements.freeDiskGb) {
     problems.push(
-      `free disk: ${best} GB (needs ${requirements.freeDiskGb} GB+ on one volume; the Chromium checkout is persistent)`,
+      `free disk: ${best} GB (needs ${requirements.freeDiskGb} GB+ on one volume for Chromium sources, dependencies and build outputs)`,
     );
   }
   if (capabilities.git === null) {
@@ -211,7 +211,7 @@ if (isMain) {
 
   try {
     if (argv.includes('--help') || argv.includes('-h')) {
-      console.log(`Check whether this machine can build Aurelia's Chromium.
+      console.log(`Measure whether this machine meets Aurelia's Chromium builder resource gate. This does not authorize compilation.
 
   --dest <dir>    directory that will hold the Chromium checkout
                   (defaults to AURELIA_CHROMIUM_DEST, then the repo parent)

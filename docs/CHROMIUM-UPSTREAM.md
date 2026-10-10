@@ -156,8 +156,9 @@ Never merge a Chromium update directly into `main`.
                signal a human must rebase the edit by hand)
 5. VERIFY      node tools/chromium/cli.mjs verify-patches --online
                Both the pre-image and post-image digests must match.
-6. BUILD       Run tools/ci/workflows/chromium-heavy-build-windows.yml on the self-hosted
-               builder. Attach the build report and smoke-test output to the issue.
+6. BUILD       Dispatch .github/workflows/chromium-build.yml on a configured
+               GitHub-hosted larger runner. Run targeted validation before full,
+               and attach the build summary and logs to the issue.
 7. DOCUMENT    Update docs/FORK-DELTA.md (numbers come from
                `node tools/chromium/cli.mjs fork-delta --json`).
 8. MERGE       Maintainer review and merge. Security updates take priority over

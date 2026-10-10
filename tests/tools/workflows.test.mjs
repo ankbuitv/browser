@@ -40,6 +40,7 @@ describe('workflow deployment', () => {
   it('ships canonical definitions in tools/ci/workflows', () => {
     const { workflows } = compareWorkflows({ sourceDir: CANONICAL_DIR });
     expect(workflows).toEqual([
+      'chromium-build.yml',
       'chromium-heavy-build-windows.yml',
       'chromium-hosted-windows-experiment.yml',
       'chromium-update-watch.yml',
@@ -97,59 +98,29 @@ describe('workflow deployment', () => {
   });
 });
 
-describe('Windows heavy build pipeline', () => {
+describe('retired self-hosted heavy build workflow', () => {
   const read = () =>
     readFileSync(
       path.join(CANONICAL_DIR, 'chromium-heavy-build-windows.yml'),
       'utf8',
     );
 
-  it('runs only on a self-hosted Windows x64 builder', () => {
+  it('is a manual notice with no self-hosted runner or scheduled work', () => {
     const workflow = read();
-    expect(workflow).toContain(
-      'runs-on: [self-hosted, windows, x64, aurelia-chromium]',
-    );
-    // Hosted runners must not be attempted: the assessment says they are not
-    // a suitable Chromium builder (docs/CI-BUILD-FEASIBILITY.md).
-    expect(workflow).not.toContain('windows-latest');
-    expect(workflow).not.toContain('ubuntu-latest');
+    expect(workflow).toContain('workflow_dispatch:');
+    expect(workflow).toContain('runs-on: windows-2025');
+    expect(workflow).not.toContain('self-hosted');
+    expect(workflow).not.toContain('schedule:');
+    expect(workflow).toContain('chromium-build.yml');
   });
 
-  it('keeps the owner-specified pipeline stages in order', () => {
+  it('does not check out Chromium or invoke a compiler', () => {
     const workflow = read();
-    const stages = [
-      'actions/checkout@',
-      'Set up Node.js',
-      'sync.mjs --dest',
-      'verify-patches --checkout',
-      'install-overlay.mjs --checkout',
-      'fork-delta --check',
-      'gn-args.mjs',
-      'gn gen out\\Release',
-      'autoninja -C out\\Release chrome',
-      'stage-runtime.mjs --out',
-      'smoke-test.mjs --binary',
-      'record-smoke-test',
-      'CreateFromDirectory',
-      'actions/upload-artifact@',
-    ];
-    let cursor = -1;
-    for (const stage of stages) {
-      // Search after the previous match so a stage mentioned in the header
-      // comment cannot satisfy the check for the step itself.
-      const index = workflow.indexOf(stage, cursor + 1);
-      expect(index, `missing pipeline stage: ${stage}`).toBeGreaterThan(-1);
-      expect(index, `stage out of order: ${stage}`).toBeGreaterThan(cursor);
-      cursor = index;
-    }
-  });
-
-  it('never weakens the browser to make CI pass', () => {
-    const workflow = read();
-    expect(workflow).not.toContain('--no-sandbox');
-    expect(workflow).not.toContain('--allow-disabled-sandbox');
-    expect(workflow).not.toContain('secrets.');
-    expect(workflow).toContain('permissions:\n  contents: read');
+    expect(workflow).not.toContain('actions/checkout');
+    expect(workflow).not.toContain('sync.mjs');
+    expect(workflow).not.toContain('autoninja');
+    expect(workflow).not.toContain('stage-runtime.mjs');
+    expect(workflow).toContain('does not sync or compile Chromium');
   });
 });
 
@@ -200,126 +171,29 @@ describe('workflow policy', () => {
   });
 });
 
-describe('hosted Windows experiment', () => {
+describe('retired hosted Windows experiment', () => {
   const read = () =>
     readFileSync(
       path.join(CANONICAL_DIR, 'chromium-hosted-windows-experiment.yml'),
       'utf8',
     );
 
-  it('is a manual, hosted-only experiment that never replaces the heavy build', () => {
+  it('remains manual-only and directs maintainers to the unified workflow', () => {
     const workflow = read();
     expect(workflow).toContain('workflow_dispatch:');
-    // Hosted, and only hosted: this is the experiment, not the product path.
-    expect(workflow).toContain('runs-on: windows-latest');
-    // The header may *refer* to the self-hosted production path, but no job
-    // here may actually run on it.
-    expect(workflow).not.toMatch(/runs-on:.*self-hosted/);
-    // No schedule: it must not consume quota on its own.
+    expect(workflow).toContain('chromium-build.yml');
+    expect(workflow).toContain('runs-on: windows-2025');
+    expect(workflow).not.toContain('self-hosted');
     expect(workflow).not.toContain('schedule:');
   });
 
-  it('measures before it syncs, and stops before syncing when too small', () => {
+  it('cannot check out Chromium, sync sources, compile, or upload artifacts', () => {
     const workflow = read();
-    const measure = workflow.indexOf('hosted-preflight.json');
-    const gate = workflow.indexOf('check-builder.mjs');
-    const sync = workflow.indexOf('sync.mjs --dest');
-    expect(measure).toBeGreaterThan(-1);
-    expect(gate).toBeGreaterThan(measure);
-    expect(sync).toBeGreaterThan(gate);
-    // The gate must be able to stop the job before the sync step.
-    expect(workflow).toContain('RESOURCE LIMIT');
-    expect(workflow).toContain("steps.gate.outputs.sufficient == 'false'");
-  });
-
-  it('does not lower the documented minimums to force a run', () => {
-    const workflow = read();
-    // The decision comes from the repository's own check, which uses the
-    // requirements recorded in config/chromium_version.json.
-    expect(workflow).toContain('node tools/ci/check-builder.mjs');
-    expect(workflow).not.toMatch(/cpuCores\s*=\s*[1-7]\b/);
-    expect(workflow).not.toMatch(/ramGb\s*=\s*(1?[0-9]|2[0-9])\b/);
-    expect(workflow).not.toMatch(/freeDiskGb\s*=\s*(1[0-4][0-9]|[1-9][0-9])\b/);
-  });
-
-  it('keeps the build stages in the owner-specified order', () => {
-    const workflow = read();
-    const stages = [
-      'sync.mjs --dest',
-      'verify-patches --checkout',
-      'install-overlay.mjs --checkout',
-      'fork-delta --check',
-      'gn-args.mjs',
-      'gn gen out\\Release',
-      'autoninja -C out\\Release chrome',
-      'stage-runtime.mjs --out',
-      'smoke-test.mjs --binary',
-      'record-smoke-test',
-      'CreateFromDirectory',
-      'actions/upload-artifact@',
-    ];
-    let cursor = -1;
-    for (const stage of stages) {
-      const index = workflow.indexOf(stage, cursor + 1);
-      expect(index, `missing experiment stage: ${stage}`).toBeGreaterThan(-1);
-      expect(index, `stage out of order: ${stage}`).toBeGreaterThan(cursor);
-      cursor = index;
-    }
-  });
-
-  it('resolves the dispatch inputs once, into environment variables', () => {
-    const workflow = read();
-    // The mode must be resolved through env so every `if:` checks the same
-    // value, and so the workflow still behaves if started by a non-dispatch
-    // event (the `inputs` context is only populated for workflow_dispatch).
-    expect(workflow).toContain(
-      "EXPERIMENT_MODE: ${{ github.event.inputs.mode || 'preflight-only' }}",
-    );
-    expect(workflow).not.toContain('inputs.mode ==');
-    expect(workflow).toContain('env.EXPERIMENT_MODE ==');
-  });
-
-  it('survives native stderr from node, gn and ninja', () => {
-    const workflow = read();
-    // The first hosted run failed inside a step whose tool exited 0: with
-    // $ErrorActionPreference='Stop' PowerShell turns the first line a native
-    // command writes to stderr into a terminating error. Every step that runs
-    // a native tool must neutralise that and check the exit code itself.
-    const lines = workflow.split('\n');
-    const starts = lines
-      .map((line, index) => (line.startsWith('      - name: ') ? index : -1))
-      .filter((index) => index !== -1);
-    starts.push(lines.length);
-    const native = /(?:node tools\/|& node |& gn |autoninja -C)/;
-    for (let index = 0; index < starts.length - 1; index += 1) {
-      const block = lines.slice(starts[index], starts[index + 1]).join('\n');
-      if (!native.test(block)) continue;
-      const name = lines[starts[index]].slice('      - name: '.length);
-      expect(block, `${name}: native stderr would fail the step`).toContain(
-        '$PSNativeCommandUseErrorActionPreference = $false',
-      );
-      // The measurement step probes optional tools (python, VS, SDKs) and
-      // records absences in the report instead of failing, so only the switch
-      // applies there; every step that performs real work checks its exit code.
-      if (name !== 'Measure the runner') {
-        expect(block, `${name}: no explicit exit-code check`).toContain(
-          '$LASTEXITCODE',
-        );
-      }
-    }
-  });
-
-  it('never weakens the browser, needs no secret, and always keeps the evidence', () => {
-    const workflow = read();
-    expect(workflow).not.toContain('--no-sandbox');
-    expect(workflow).not.toContain('--allow-disabled-sandbox');
-    expect(workflow).not.toContain('continue-on-error');
-    expect(workflow).not.toContain('secrets.');
-    expect(workflow).toContain('permissions:\n  contents: read');
-    // Reports must survive a failed run.
-    expect(workflow).toContain('if: always()');
-    expect(workflow).toContain('hosted-preflight.json');
-    expect(workflow).toContain('runner-capabilities.json');
+    expect(workflow).not.toContain('actions/checkout');
+    expect(workflow).not.toContain('sync.mjs');
+    expect(workflow).not.toContain('autoninja');
+    expect(workflow).not.toContain('actions/upload-artifact');
+    expect(workflow).toContain('does not sync or compile Chromium');
   });
 });
 

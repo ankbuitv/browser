@@ -59,7 +59,9 @@ Signing material rules:
 
 1. Milestone complete: all exit criteria met, statuses accurate.
 2. `node tools/chromium/cli.mjs status` shows the intended pin and patch set.
-3. Heavy build green on the builder, including the runtime smoke test.
+3. Full mode green in `.github/workflows/chromium-build.yml` on a configured
+   GitHub-hosted larger runner, followed by a passing runtime smoke test. Keep
+   the run URL and test evidence with the release PR.
 4. Feature tests for the milestone green; results linked in the release PR.
 5. Privacy documentation audit: `PRIVACY.md`, `docs/NETWORK-CONNECTIONS.md` and
    `SECURITY.md` match what the build actually does.
@@ -89,8 +91,8 @@ repository commit + Chromium pin + depot_tools revision + GN args
 ```
 
 `tools/chromium/sync.mjs` writes those four facts into its output, and the
-heavy build workflow records them in its build report. If a build cannot be
-reproduced from those four facts, the build is not releaseable.
+manual `chromium-build.yml` workflow records them in its build summary. If a
+build cannot be reproduced from those four facts, the build is not releaseable.
 
 ## Not automated yet, on purpose
 

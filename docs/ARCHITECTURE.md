@@ -138,7 +138,7 @@ component code. It is never shipped and never referenced by the overlay.
 unit tests        →  logic is correct
 repository checks →  artifacts agree with each other
 patch verify      →  delta applies to the pinned upstream revision
-heavy build       →  it compiles (self-hosted builder)
+hosted validation →  it compiles (manual, resource-gated GitHub Actions job)
 smoke test        →  the built browser runs an Aurelia surface
 feature tests     →  the product behaves as documented
 ```

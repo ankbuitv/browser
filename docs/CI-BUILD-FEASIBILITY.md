@@ -1,128 +1,99 @@
-# Can a GitHub-hosted runner build Aurelia?
+# GitHub-hosted Chromium build feasibility
 
-The Windows x64 build pipeline runs on a **self-hosted** runner. This document
-records why, what evidence the decision rests on, and what would have to change
-for the answer to flip. It exists because the owner's instruction was explicit:
-do not assume a standard hosted runner can build Chromium, and do not burn CI
-quota finding out.
+Chromium validation is manual-only and runs on GitHub-hosted Windows x64
+runners. The workflow does not use a self-hosted runner, an external build
+server, a containerized Chromium replacement, or credentials from a third party.
 
-## The requirements being assessed
+## Published runner resources
 
-Taken from `config/chromium_version.json` (`buildRequirements`) and
-`docs/BUILDING-CHROMIUM.md`, and enforced at runtime by the capability probe in
-`tools/ci/workflows/chromium-heavy-build-windows.yml`:
+This repository is public. GitHub's current published specification for the
+standard public `windows-2025` runner is **4 vCPUs, 16 GB RAM, and 14 GB SSD**.
+The values available to an individual job can differ from a published image
+summary, so every run also measures the destination volume and actual machine
+before fetching Chromium. See the [GitHub-hosted runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
-| Requirement             | Minimum                                                              | Notes                                                                            |
-| ----------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Logical cores           | 8                                                                    | compile parallelism, linker memory                                               |
-| RAM                     | 32 GB                                                                | linking Chrome is the peak; lower values swap and crawl                          |
-| Free disk on one volume | 150 GB                                                               | Chromium source + dependencies + build output; the checkout is **persistent**    |
-| Toolchain               | Visual Studio C++ x64 (VC.Tools.x86.x64), Windows SDK, Git, Python 3 | `tools/ci/check-builder.mjs` records what it found in `runner-capabilities.json` |
-| Node.js                 | 22.4+                                                                | the smoke test uses the global WebSocket                                         |
-| Wall clock              | hours, not minutes                                                   | a full sync is itself hours on a cold machine                                    |
+GitHub documents a Windows larger-runner tier with **8 vCPUs, 32 GB RAM, and
+300 GB SSD**. Larger runners are a GitHub-hosted service, but they require an
+eligible organization plan, a configured runner, repository access, and billing.
+The optional `larger` input selects the label `windows-latest-8-cores`; an
+organization administrator must configure a GitHub-hosted Windows runner with
+that name. See [larger-runner specifications](https://docs.github.com/en/actions/reference/runners/larger-runners).
 
-These are **documented minimums for the first build**, not measurements. The
-first successful heavy build replaces them with measured numbers (the workflow
-records CPU, RAM and free disk in the build manifest).
+| Runner choice                        | Published resources              | Expected outcome                                                                                                                                            |
+| ------------------------------------ | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `standard` (`windows-2025`, default) | 4 vCPUs / 16 GB RAM / 14 GB SSD  | **BLOCKED** before Chromium source sync because it does not meet Aurelia's recorded 8 / 32 / 150 minimums.                                                  |
+| `larger` (`windows-latest-8-cores`)  | 8 vCPUs / 32 GB RAM / 300 GB SSD | Proceeds only if the live measurement confirms at least 150 GB free on the exact Chromium destination volume and the required Windows toolchain is present. |
 
-## What a GitHub-hosted runner is
+Earlier runner experiments recorded different free-space totals on preinstalled
+Windows volumes. Those historical measurements are not treated as a guarantee;
+the validation tool records the actual CPU, RAM, architecture, Visual Studio
+installation, and free space for each run. It never lowers the existing builder
+minimum in order to force a sync.
 
-Read from `github.com/actions/runner-images` at commit
-`5f7588b285eccc2edbeb1cd79d65ee0b577e4b4a`: the hosted Windows image
-(`windows-latest` = Windows Server 2025, image version 20260927.275.1 at that
-commit) is a large, preinstalled Visual Studio image. Two properties matter
-more than any single number:
+## Chromium requirements and workflow design
 
-1. **It is ephemeral.** Every job starts on a fresh VM. Our pipeline depends on
-   a persistent, pinned checkout: `AURELIA_CHROMIUM_DEST` is a directory that
-   survives between runs, and `tools/chromium/sync.mjs` verifies `HEAD` equals
-   the pinned revision before building. On a hosted runner, every run would
-   re-sync tens of gigabytes of Chromium and its dependencies before compiling
-   a single file.
-2. **Job time and quota.** Hosted jobs have a wall-clock ceiling and consume
-   the account's Actions minutes. A build that spends hours re-syncing before
-   it can build is precisely the "known to exceed runner resources" attempt the
-   owner ruled out.
+Chromium's current Linux build instructions specify at least 100 GB free disk
+and recommend more than 16 GB RAM; Aurelia deliberately retains its more
+conservative, reviewed first-build gate: **8 logical cores, 32 GB RAM, and
+150 GB free on one volume**. That gate is stored in
+`config/chromium_version.json`, checked by `tools/ci/check-builder.mjs`, and the
+150 GB disk floor is independently enforced by `tools/chromium/sync.mjs`.
 
-The exact CPU/RAM/disk figures for hosted runners are published on
-`docs.github.com`, which the environment that wrote this assessment could not
-reach. Rather than assert numbers that cannot be checked here, the decision
-rests on the two properties above: even a generously sized ephemeral runner
-does not give a Chromium fork what it needs.
+The manual workflow is `.github/workflows/chromium-build.yml` (canonical
+source: `tools/ci/workflows/chromium-build.yml`). It has no `push`,
+`pull_request`, or schedule trigger. `gn` is the default validation level;
+`targeted` and `full` require explicit selection. A standard runner records a
+`BLOCKED` result and exits before any Chromium checkout, which avoids known
+resource failures and repeated waste.
 
-## Verdict
+When a configured larger runner is selected, each validation level is
+incremental within one job:
 
-| Option                          | Verdict                                                                                                                                                                                                                                                                                                                                          |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| GitHub-hosted `windows-latest`  | **Measured 2026-10-07: fails the minimums.** 4 logical cores / 16 GB RAM / 147 GB free disk against 8 / 32 / 150 (`win25-vs2026`, image `20260925.250.1`). The experiment stopped before syncing. Ephemeral and quota-burning even when it has the size.                                                                                         |
-| Larger hosted runners           | Would address size, **not** persistence or quota. Not attempted.                                                                                                                                                                                                                                                                                 |
-| Self-hosted Windows x64 builder | **Required.** Labels `[self-hosted, windows, x64, aurelia-chromium]`; `tools/ci/check-builder.mjs` refuses to start on a machine below the minimums, so a misprovisioned runner fails in seconds with a precise message instead of failing in hour five. Run it before provisioning: `node tools/ci/check-builder.mjs --dest <checkout-parent>`. |
+1. Verify the runner reports `GITHUB_ACTIONS=true` and
+   `RUNNER_ENVIRONMENT=github-hosted`, measure its resources, and stop unless the
+   full recorded builder minimums are met.
+2. Use `tools/chromium/sync.mjs` to install the pinned `depot_tools`, sync the
+   configured Chromium revision with at most four sync jobs, and verify the
+   resulting SHA. Verify the `depot_tools` pin as well.
+3. Verify the patch set against the pristine checkout, then apply the patch and
+   overlay with Aurelia's existing tools.
+4. Validate the reviewed GN arguments, run `gn gen`, verify the generated
+   `out/Aurelia/args.gn` against the same policy, resolve all selected target
+   labels with `gn desc`, and run scoped `gn check` for the two Aurelia C++
+   controller targets.
+5. Build WebUI `build_ts`, `build_grd`, and `resources` targets for both pages.
+   The pinned Chromium `build_webui()` template defines those targets; they
+   validate TypeScript, GRIT generation, resource maps, and `.pak` packaging.
+6. `targeted` additionally compiles the two overlay `source_set` targets and
+   their C++ dependencies. `full` does the same first, then compiles Chromium's
+   `chrome` target. A failure in any earlier stage stops the run.
 
-## The experiment that will answer this with numbers
+The selected target labels are declared in the Aurelia overlay `BUILD.gn` files
+and the `build_webui()` template fetched at the configured Chromium revision;
+the generated GN graph must resolve each label before any compile command. All
+Ninja invocations are capped at four jobs. Disk and available memory are sampled
+every 30 seconds; the process tree is stopped if the 15 GB disk reserve or
+1.5 GB available-memory reserve is breached. A 330-minute internal deadline
+leaves time for summaries and artifact upload under GitHub's 6-hour job limit.
 
-`tools/ci/workflows/chromium-hosted-windows-experiment.yml` (manual dispatch
-only) measures a hosted Windows runner - image, CPU, RAM, free disk, VS/MSVC,
-Windows SDKs - classifies it with `tools/ci/check-builder.mjs` against the
-documented minimums, and **stops before syncing anything** when the verdict is
-RESOURCE LIMIT. Only a machine that meets the minimums is allowed one
-controlled build attempt. The minimums are not lowered to make the run happen:
-a cheap, early RESOURCE LIMIT with measured numbers is the useful outcome.
+## Ephemeral checkout and artifact policy
 
-### Measured: the standard hosted Windows runner (2026-10-07)
+GitHub-hosted runners are fresh VMs. This workflow does not assume a persistent
+Chromium checkout and does not cache or upload the source tree. Each manual run
+that passes preflight syncs the exact pin once, then performs only its selected
+validation level. That first sync is expensive and is deliberately not started
+on a standard runner.
 
-[Run 37595986333](https://github.com/ankbuitv/browser/actions/runs/37595986333)
-(push-triggered verification run, `windows-latest`, preflight only) measured the
-machine, classified it, and skipped every stage from the Chromium sync onwards.
+`artifacts/` contains build logs, resource-usage samples, runner capabilities,
+GN arguments, and a build summary. It never contains the Chromium checkout. A
+browser runtime is staged and uploaded only after the full `chrome` compiler
+command exits successfully and the staged files fit within a 450 MiB upload
+budget. A skipped binary upload is recorded in the summary. No compiler success
+is claimed without a zero exit code.
 
-| Item                    | Measured                                                      | Minimum |
-| ----------------------- | ------------------------------------------------------------- | ------- |
-| Image                   | `win25-vs2026`, image `20260925.250.1` (Windows Server 2025)  | -       |
-| CPU                     | AMD EPYC 7763, **4 logical cores**                            | 8+      |
-| RAM                     | **16 GB** (13.3 GB available)                                 | 32 GB+  |
-| Free disk (best volume) | **147 GB** (`D:`; `C:` and `TEMP` 32.1 GB free each)          | 150 GB+ |
-| Verdict                 | **RESOURCE LIMIT** - three problems, reported before any sync | -       |
-
-The run failed by design (`Fail as RESOURCE LIMIT`, exit 1) with the annotation
-`logical cores: 4 (needs 8+); RAM: 16 GB (needs 32 GB+); free disk: 147 GB
-(needs 150 GB+ on one volume; the Chromium checkout is persistent)`, and its
-artifact holds `artifacts/hosted-preflight.json` and
-`artifacts/runner-capabilities.json`. No Chromium sync and no build attempt
-happened on that machine, and none should: the numbers are hard to move (a
-larger hosted runner would still be ephemeral and quota-burning), so the
-self-hosted `[self-hosted, windows, x64, aurelia-chromium]` builder remains the
-only path. Re-measure by dispatching the experiment workflow (Actions UI) if
-GitHub changes its images.
-
-## The same pipeline without GitHub
-
-`tools/chromium/build.mjs` runs the identical stages locally (`--dry-run` prints
-the plan). A builder therefore does not depend on Actions being available.
-
-## How the pipeline enforces this
-
-- `runs-on: [self-hosted, windows, x64, aurelia-chromium]` — a hosted runner
-  cannot pick the job up. A test asserts the workflow never names a hosted
-  label.
-- The first step runs `tools/ci/check-builder.mjs`, which probes cores, RAM,
-  free disk on the volume holding `AURELIA_CHROMIUM_DEST`, and the Visual
-  Studio C++ toolchain; it fails with a list of what is missing. The recorded
-  capabilities are uploaded with the build and recorded in the manifest.
-- `sync.mjs` has its own 150 GB preflight and refuses to sync without it.
-
-## Re-checking this assessment
-
-```powershell
-# What does the machine actually have?
-Get-CimInstance Win32_Processor | Select-Object NumberOfLogicalProcessors
-[math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 1)
-Get-PSDrive (Get-Item $env:AURELIA_CHROMIUM_DEST).PSDrive.Name
-
-# What does GitHub document for its images?
-#   https://docs.github.com/actions/using-github-hosted-runners/about-github-hosted-runners
-# What is in the images themselves?
-#   https://github.com/actions/runner-images (README + images/windows/*.md)
-```
-
-If a hosted option ever provides a persistent volume of 150+ GB attached to a
-32 GB machine with hours of budget per run, this document is the place to
-record that change - and to say who verified it and when.
+The workflow job has a 360-minute hard timeout and runs one at a time. If a
+larger runner is not configured or available, choose `standard` to capture the
+`BLOCKED` evidence; the `larger` job will remain queued until its GitHub-hosted
+runner label is available. The legacy self-hosted heavy-build and standard-runner experiment workflows are
+retired and have no source sync or compiler steps. The only supported Chromium
+validation and compilation entry point is `chromium-build.yml`.
