@@ -36,7 +36,8 @@ import {
 } from '../ci/check-builder.mjs';
 import { isGithubHostedRunner } from '../ci/runner-environment.mjs';
 import { isMainModule } from '../lib/entry.mjs';
-import { captureCommand, resolveSpawn } from './lib/exec.mjs';
+import { captureCommand, resolveSpawn, withPathPrefix } from './lib/exec.mjs';
+import { describeGitEnvironment } from './lib/windows-git.mjs';
 import { loadConfig, REPO_ROOT } from './lib/config.mjs';
 import { planStaging } from './stage-runtime.mjs';
 
@@ -868,8 +869,25 @@ export async function runValidation({
     if (process.platform !== 'win32' || process.arch !== 'x64') {
       problems.push(`platform: ${process.platform}/${process.arch} (this workflow builds Windows x64)`);
     }
+    // Read-only: tool paths, tool versions and PATH entries whose name
+    // mentions git. Never a credential or a token.
+    const tooling = describeGitEnvironment({ env: process.env });
+    log(
+      `runner: git ${tooling.git === null ? 'NOT FOUND' : `${tooling.git.path} (${tooling.git.version})`}`,
+    );
+    if (process.platform === 'win32') {
+      log(
+        `runner: git.bat ${tooling.gitBatResolvable ?? 'not resolvable from PATH (a shim is created during sync)'}`,
+      );
+    }
+    log(`runner: python ${tooling.python ?? 'not found on PATH'}`);
+    for (const entry of tooling.gitPathEntries) {
+      log(`runner: PATH entry with git: ${entry}`);
+    }
+
     context.capabilities = {
       ...builder.capabilities,
+      tooling,
       runnerSize,
       destination: resolvedDest,
       destinationFreeDiskGb,
@@ -910,8 +928,7 @@ export async function runValidation({
     const srcDir = path.join(resolvedDest, 'src');
     const outDir = path.join(srcDir, 'out', 'Aurelia');
     const childEnv = {
-      ...process.env,
-      PATH: `${toolsDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      ...withPathPrefix(process.env, toolsDir),
       DEPOT_TOOLS_UPDATE: '0',
       GCLIENT_PY3: '1',
       NINJA_SUMMARIZE_BUILD: '1',
