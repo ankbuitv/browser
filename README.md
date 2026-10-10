@@ -183,3 +183,12 @@ remains **BSD-3-Clause**, and its notices are preserved. See
 
 Report vulnerabilities privately — never in a public issue. See
 [SECURITY.md](SECURITY.md).
+
+
+<a href="https://www.star-history.com/#ankworks/aurelia&Date">
+    <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ankworks/aurelia&type=Date&theme=dark" />
+        <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ankworks/aurelia&type=Date" />
+        <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ankworks/aurelia&type=Date" />
+    </picture>
+</a>
