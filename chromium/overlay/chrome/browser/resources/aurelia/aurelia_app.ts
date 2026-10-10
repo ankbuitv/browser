@@ -3,6 +3,8 @@
 // that can be found in the LICENSE file at the repository root.
 
 import './aurelia_status_card.js';
+import './command_palette.js';
+import type {AureliaCommandPaletteElement} from './command_palette.js';
 
 import {loadTimeData} from '//resources/js/load_time_data.js';
 
@@ -57,6 +59,7 @@ export class AureliaAppElement extends HTMLElement {
   }
 
   private info: BuildInfo|null = null;
+  private palette: AureliaCommandPaletteElement|null = null;
 
   connectedCallback(): void {
     if (this.hasAttribute('data-rendered')) {
@@ -66,6 +69,23 @@ export class AureliaAppElement extends HTMLElement {
     this.info = readBuildInfo(this);
     this.render();
   }
+
+  disconnectedCallback(): void {
+    document.removeEventListener('keydown', this.onKeydown);
+  }
+
+  /**
+   * Ctrl+K / Cmd+K toggles the command palette (see README.md). The listener
+   * is registered once, from render(), and only when the palette is mounted.
+   */
+  private readonly onKeydown = (event: KeyboardEvent): void => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey ||
+        event.key.toLowerCase() !== 'k') {
+      return;
+    }
+    event.preventDefault();
+    this.palette?.toggle();
+  };
 
   private render(): void {
     const info = this.info;
@@ -117,6 +137,22 @@ export class AureliaAppElement extends HTMLElement {
     ]));
 
     this.appendChild(grid);
+
+    // The palette is part of the page, not a standalone element: without this
+    // mount the bundled command_palette.js/.css would never run on the page.
+    const opener = document.createElement('button');
+    opener.id = 'aurelia-open-palette';
+    opener.type = 'button';
+    opener.className = 'aurelia-palette-opener';
+    opener.textContent = 'Command palette (Ctrl+K)';
+    opener.addEventListener('click', () => this.palette?.open());
+    this.appendChild(opener);
+
+    const palette = document.createElement('aurelia-command-palette');
+    palette.setAttribute('data-opener', opener.id);
+    this.palette = palette as AureliaCommandPaletteElement;
+    this.appendChild(palette);
+    document.addEventListener('keydown', this.onKeydown);
 
     const footer = document.createElement('p');
     footer.className = 'aurelia-footer';

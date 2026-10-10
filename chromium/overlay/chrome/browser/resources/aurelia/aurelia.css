@@ -49,6 +49,16 @@ aurelia-app {
   margin: var(--aurelia-space-xs) 0 0;
 }
 
+.aurelia-palette-opener {
+  background: var(--aurelia-color-background-elevated);
+  border: 1px solid var(--aurelia-color-border);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  margin: 0 0 var(--aurelia-space-xl);
+  padding: var(--aurelia-space-sm) var(--aurelia-space-lg);
+}
+
 .aurelia-grid {
   display: grid;
   gap: var(--aurelia-space-lg);
