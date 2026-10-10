@@ -2,18 +2,18 @@
 # Use of this source code is governed by the Mozilla Public License, v. 2.0,
 # that can be found in the LICENSE file at the repository root.
 
-import "//build/webui/webui.gni"
+import("//ui/webui/resources/tools/build_webui.gni")
 
-# New Tab page resources
-# STATUS: SCAFFOLDED - GN configuration written, not compiled yet.
-build_webui("newtab") {
-  name = "newtab_resources"
-  html = "newtab.html"
-  js_modules = [ "newtab_app.js" ]
-  css = [
+assert(!is_android)
+
+# Generates :build_ts, :build_grd and :resources (GRIT headers, map and pak).
+build_webui("build") {
+  grd_prefix = "aurelia_newtab"
+  static_files = [
+    "newtab.html",
     "newtab.css",
-    "//chrome/browser/resources/aurelia/design_tokens.css",
+    "design_tokens.css",
   ]
-  webui_pak = true
-  grit_prefix = "newtab"
+  ts_files = [ "newtab_app.ts" ]
+  webui_context_type = "trusted"
 }

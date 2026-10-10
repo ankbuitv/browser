@@ -47,8 +47,8 @@ describe('patch set', () => {
       expect(existsSync(metaPath)).toBe(true);
       const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
       expect(meta.baseRevision).toBe(config.chromium.revision);
-      expect(meta.summary.filesModified).toBeLessThanOrEqual(6);
-      expect(meta.summary.linesAdded).toBeLessThanOrEqual(10);
+      expect(meta.summary.filesModified).toBeLessThanOrEqual(8);
+      expect(meta.summary.linesAdded).toBeLessThanOrEqual(50);
     }
   });
 

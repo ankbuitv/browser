@@ -29,7 +29,7 @@ M1 implements the core browser shell with:
 │  ┌─────────────────────────────────────────────────────────────────┐  │
 │  │                    RENDERER PROCESS                               │  │
 │  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │  │
-│  │  │  chrome://aurelia │  │  chrome://newtab  │  │  Command Palette │  │  │
+│  │  │  chrome://aurelia │  │  chrome://aurelia-newtab  │  │  Command Palette │  │  │
 │  │  │  (WebUI)         │  │  (WebUI)          │  │  (WebUI Modal)   │  │  │
 │  │  └─────────────────┘  └─────────────────┘  └─────────────────┘  │  │
 │  └─────────────────────────────────────────────────────────────────┘  │
@@ -38,7 +38,7 @@ M1 implements the core browser shell with:
 
 ## Integration Points
 
-### 1. New Tab Page (`chrome://newtab`)
+### 1. New Tab Page (`chrome://aurelia-newtab`)
 
 **Location:** `chromium/overlay/chrome/browser/ui/webui/newtab/`
 
@@ -225,7 +225,7 @@ chromium/overlay/
 │   │   ├── aurelia_ui.h
 │   │   ├── aurelia_ui.cc
 │   │   └── aurelia_version.h
-│   └── newtab/                    (NEW - chrome://newtab)
+│   └── newtab/                    (NEW - chrome://aurelia-newtab)
 │       ├── BUILD.gn
 │       ├── newtab_ui.h
 │       ├── newtab_ui.cc
@@ -251,21 +251,17 @@ chromium/overlay/
 
 ### GN Targets
 
-```gn
-# New Tab WebUI
-webui_newtab {
-  name = "newtab"
-  html = "newtab.html"
-  js_modules = [ "newtab_app.js" ]
-  css = [ "design_tokens.css", "newtab.css" ]
-}
+The implemented targets use Chromium's pinned templates, not pseudocode:
 
-# Command Palette (shared resource)
-webui_resource("command_palette") {
-  js = [ "command_palette.js" ]
-  css = [ "command_palette.css" ]
-}
-```
+- `chrome/browser/resources/newtab/BUILD.gn`: `build_webui("build")` imported
+  from `//ui/webui/resources/tools/build_webui.gni`; `grd_prefix = "aurelia_newtab"`,
+  HTML/CSS in `static_files`, TypeScript in `ts_files`.
+- `chrome/browser/ui/webui/newtab/BUILD.gn`: `source_set("newtab")`, depending
+  on `//chrome/browser/resources/newtab:resources`.
+- The command palette TS/CSS remains part of Aurelia's resources target.
+
+See [the finalization audit](M1-FINALIZATION.md) for generation details and
+unverified build/runtime boundaries. `chrome://newtab` is **not redirected**.
 
 ### Patch Strategy
 
@@ -276,12 +272,10 @@ Following M0's approach:
 3. **Verifiable patches** - Each patch has pre/post digests
 4. **No behavior changes** - Only additions, no modifications
 
-**New patches required for M1:**
-
-| Patch # | Purpose                                         | Files Modified | Lines Added |
-| ------- | ----------------------------------------------- | -------------- | ----------- |
-| 0002    | Register `chrome://newtab` WebUI                | 6              | 7           |
-| 0003    | Register Ctrl+K accelerator for command palette | 1-2            | 3-5         |
+**Current patch:** generator-owned `0001` registers both isolated pages,
+allocates GRIT IDs and includes the paks: 8 upstream files, +26/-0 lines.
+The invalid standalone `0002` was consolidated, not skipped by verification.
+The browser-wide Ctrl+K accelerator remains future work, not part of this patch.
 
 ## Implementation Order
 
@@ -294,7 +288,7 @@ Following M0's approach:
 
 ### Phase 2: C++ Integration (Requires Full Build)
 
-1. Create `chrome://newtab` WebUI controller
+1. Create `chrome://aurelia-newtab` WebUI controller
 2. Add newtab registration patches
 3. Create custom frame view overlay
 4. Create custom tab strip overlay

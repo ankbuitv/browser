@@ -13,16 +13,18 @@ namespace content {
 class WebUI;
 }
 
-class NewTabUI;
+class AureliaNewTabUI;
 
 // chrome://aurelia-newtab is Aurelia's new tab page.
 // Using a custom host (aurelia-newtab) instead of replacing chrome://newtab
 // to avoid breaking existing Chromium New Tab behavior and extensions.
 //
 // STATUS: SCAFFOLDED - C++ controller written, not compiled yet.
-class NewTabUIConfig : public content::DefaultInternalWebUIConfig<NewTabUI> {
+class AureliaNewTabUIConfig
+    : public content::DefaultInternalWebUIConfig<AureliaNewTabUI> {
  public:
-  NewTabUIConfig() : DefaultInternalWebUIConfig(chrome::kChromeUINewTabAureliaHost) {}
+  AureliaNewTabUIConfig()
+      : DefaultInternalWebUIConfig(chrome::kChromeUINewTabAureliaHost) {}
 };
 
 // Controller for chrome://aurelia-newtab.
@@ -30,13 +32,13 @@ class NewTabUIConfig : public content::DefaultInternalWebUIConfig<NewTabUI> {
 // M1 scope: A minimal new tab page with search/URL input and quick actions.
 // The page has no message handlers initially - navigation is handled through
 // the standard WebUI navigation mechanism.
-class NewTabUI : public ui::MojoWebUIController {
+class AureliaNewTabUI : public ui::MojoWebUIController {
  public:
-  explicit NewTabUI(content::WebUI* web_ui);
-  ~NewTabUI() override;
+  explicit AureliaNewTabUI(content::WebUI* web_ui);
+  ~AureliaNewTabUI() override;
 
-  NewTabUI(const NewTabUI&) = delete;
-  NewTabUI& operator=(const NewTabUI&) = delete;
+  AureliaNewTabUI(const AureliaNewTabUI&) = delete;
+  AureliaNewTabUI& operator=(const AureliaNewTabUI&) = delete;
 
  private:
   WEB_UI_CONTROLLER_TYPE_DECL();

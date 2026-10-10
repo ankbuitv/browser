@@ -25,7 +25,8 @@ export const UPSTREAM_EDITS = [
   {
     path: 'chrome/common/webui_url_constants.h',
     component: 'webui-url-constants',
-    reason: 'Declare the chrome://aurelia host constant next to the other WebUI hosts.',
+    reason:
+      'Declare the chrome://aurelia host constant next to the other WebUI hosts.',
     rebaseDifficulty: 'trivial',
     couldBecomeOverlay: false,
     upstreamable: 'no (Aurelia-specific)',
@@ -38,7 +39,8 @@ export const UPSTREAM_EDITS = [
   {
     path: 'chrome/browser/resources/BUILD.gn',
     component: 'resources',
-    reason: 'Include the Aurelia WebUI resources pak in the browser resources group.',
+    reason:
+      'Include the Aurelia WebUI resources pak in the browser resources group.',
     rebaseDifficulty: 'trivial',
     couldBecomeOverlay: false,
     upstreamable: 'no (Aurelia-specific)',
@@ -55,7 +57,8 @@ export const UPSTREAM_EDITS = [
   {
     path: 'chrome/browser/ui/webui/BUILD.gn',
     component: 'webui',
-    reason: 'Add the Aurelia WebUI controller to the desktop WebUI dependency set.',
+    reason:
+      'Add the Aurelia WebUI controller to the desktop WebUI dependency set.',
     rebaseDifficulty: 'trivial',
     couldBecomeOverlay: false,
     upstreamable: 'no (Aurelia-specific)',
@@ -108,14 +111,15 @@ export const UPSTREAM_EDITS = [
   {
     path: 'chrome/browser/ui/webui/chrome_web_ui_configs.cc',
     component: 'webui',
-    reason: 'Register the chrome://aurelia WebUI config and include its header.',
+    reason:
+      'Register the chrome://aurelia WebUI config and include its header.',
     rebaseDifficulty: 'trivial',
     couldBecomeOverlay: false,
     upstreamable: 'no (Aurelia-specific)',
-    find: '#include "chrome/browser/ui/webui/autofill_and_password_manager_internals/autofill_internals_ui.h"',
+    find: '#include "chrome/browser/ui/webui/app_service_internals/app_service_internals_ui.h"',
     replace: [
       '#include "chrome/browser/ui/webui/aurelia/aurelia_ui.h"',
-      '#include "chrome/browser/ui/webui/autofill_and_password_manager_internals/autofill_internals_ui.h"',
+      '#include "chrome/browser/ui/webui/app_service_internals/app_service_internals_ui.h"',
     ].join('\n'),
   },
   {
@@ -125,10 +129,10 @@ export const UPSTREAM_EDITS = [
     rebaseDifficulty: 'trivial',
     couldBecomeOverlay: false,
     upstreamable: 'no (Aurelia-specific)',
-    find: '  map.AddWebUIConfig(std::make_unique<AppHomeUIConfig>());',
+    find: '  map.AddWebUIConfig(std::make_unique<NewTabUIConfig>());',
     replace: [
       '  map.AddWebUIConfig(std::make_unique<AureliaUIConfig>());',
-      '  map.AddWebUIConfig(std::make_unique<AppHomeUIConfig>());',
+      '  map.AddWebUIConfig(std::make_unique<NewTabUIConfig>());',
     ].join('\n'),
   },
   {
@@ -147,7 +151,8 @@ export const UPSTREAM_EDITS = [
   {
     path: 'chrome/browser/resources/BUILD.gn',
     component: 'resources',
-    reason: 'Include the NewTab WebUI resources pak in the browser resources group.',
+    reason:
+      'Include the NewTab WebUI resources pak in the browser resources group.',
     rebaseDifficulty: 'trivial',
     couldBecomeOverlay: false,
     upstreamable: 'no (Aurelia-specific)',
@@ -164,7 +169,8 @@ export const UPSTREAM_EDITS = [
   {
     path: 'chrome/browser/ui/webui/BUILD.gn',
     component: 'webui',
-    reason: 'Add the NewTab WebUI controller to the desktop WebUI dependency set.',
+    reason:
+      'Add the NewTab WebUI controller to the desktop WebUI dependency set.',
     rebaseDifficulty: 'trivial',
     couldBecomeOverlay: false,
     upstreamable: 'no (Aurelia-specific)',
@@ -223,14 +229,15 @@ export const UPSTREAM_EDITS = [
   {
     path: 'chrome/browser/ui/webui/chrome_web_ui_configs.cc',
     component: 'webui',
-    reason: 'Register the chrome://aurelia-newtab WebUI config and include its header.',
+    reason:
+      'Register the chrome://aurelia-newtab WebUI config and include its header.',
     rebaseDifficulty: 'trivial',
     couldBecomeOverlay: false,
     upstreamable: 'no (Aurelia-specific)',
-    find: '#include "chrome/browser/ui/webui/autofill_and_password_manager_internals/password_manager_internals_ui.h"',
+    find: '#include "chrome/browser/ui/webui/autofill_ml_internals/autofill_ml_internals_ui.h"',
     replace: [
       '#include "chrome/browser/ui/webui/newtab/newtab_ui.h"',
-      '#include "chrome/browser/ui/webui/autofill_and_password_manager_internals/password_manager_internals_ui.h"',
+      '#include "chrome/browser/ui/webui/autofill_ml_internals/autofill_ml_internals_ui.h"',
     ].join('\n'),
   },
   {
@@ -243,8 +250,56 @@ export const UPSTREAM_EDITS = [
     find: '  map.AddWebUIConfig(std::make_unique<AureliaUIConfig>());',
     replace: [
       '  map.AddWebUIConfig(std::make_unique<AureliaUIConfig>());',
-      '  map.AddWebUIConfig(std::make_unique<NewTabUIConfig>());',
+      '  map.AddWebUIConfig(std::make_unique<AureliaNewTabUIConfig>());',
     ].join('\n'),
+  },
+  {
+    path: 'chrome/chrome_paks.gni',
+    component: 'resources',
+    reason:
+      'Repack both Aurelia resource bundles into the desktop browser resources.pak.',
+    rebaseDifficulty: 'trivial',
+    couldBecomeOverlay: false,
+    upstreamable: 'no (Aurelia-specific)',
+    find: '        "$root_gen_dir/chrome/app_service_internals_resources.pak",',
+    replace:
+      '        "$root_gen_dir/chrome/app_service_internals_resources.pak",\n        "$root_gen_dir/chrome/aurelia_resources.pak",\n        "$root_gen_dir/chrome/aurelia_newtab_resources.pak",',
+  },
+  {
+    path: 'chrome/chrome_paks.gni',
+    component: 'resources',
+    reason:
+      'Ensure both Aurelia resource paks exist before the desktop repack action.',
+    rebaseDifficulty: 'trivial',
+    couldBecomeOverlay: false,
+    upstreamable: 'no (Aurelia-specific)',
+    find: '        "//chrome/browser/actor/resources:browser_resources",',
+    replace:
+      '        "//chrome/browser/actor/resources:browser_resources",\n        "//chrome/browser/resources/aurelia:resources",\n        "//chrome/browser/resources/newtab:resources",',
+  },
+  {
+    path: 'tools/gritsettings/resource_ids.spec',
+    component: 'resources',
+    reason:
+      'Reserve generated resource IDs for Aurelia through the upstream allocator.',
+    rebaseDifficulty: 'trivial',
+    couldBecomeOverlay: false,
+    upstreamable: 'no (Aurelia-specific)',
+    find: '  "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/bluetooth_internals/resources.grd": {',
+    replace:
+      '  "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/aurelia/resources.grd": {\n    "META": {"sizes": {"includes": [20]}},\n    "includes": [2870],\n  },\n  "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/bluetooth_internals/resources.grd": {',
+  },
+  {
+    path: 'tools/gritsettings/resource_ids.spec',
+    component: 'resources',
+    reason:
+      'Reserve generated resource IDs for the isolated Aurelia New Tab page.',
+    rebaseDifficulty: 'trivial',
+    couldBecomeOverlay: false,
+    upstreamable: 'no (Aurelia-specific)',
+    find: '  "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/omnibox/aim_eligibility_extension/resources.grd": {',
+    replace:
+      '  "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/newtab/resources.grd": {\n    "META": {"sizes": {"includes": [20]}},\n    "includes": [4452],\n  },\n  "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/omnibox/aim_eligibility_extension/resources.grd": {',
   },
 ];
 

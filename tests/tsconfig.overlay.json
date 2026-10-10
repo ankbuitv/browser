@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "types": []
+  },
+  "files": [
+    "../chromium/overlay/chrome/browser/resources/newtab/newtab_app.ts",
+    "../chromium/overlay/chrome/browser/resources/aurelia/command_palette.ts",
+    "../chromium/overlay/chrome/browser/resources/aurelia/aurelia_status_card.ts"
+  ]
+}

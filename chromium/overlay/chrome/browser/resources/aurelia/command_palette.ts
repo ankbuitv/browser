@@ -37,17 +37,16 @@ export class AureliaCommandPaletteElement extends HTMLElement {
   private selectedIndex = -1;
   private isOpen = false;
 
-  override connectedCallback(): void {
+  connectedCallback(): void {
     if (this.hasAttribute('data-rendered')) {
       return;
     }
     this.setAttribute('data-rendered', 'true');
     this.render();
     this.setupCommands();
-    this.setupKeyboard();
   }
 
-  override disconnectedCallback(): void {
+  disconnectedCallback(): void {
     this.isOpen = false;
     this.selectedIndex = -1;
   }
@@ -334,7 +333,7 @@ export class AureliaCommandPaletteElement extends HTMLElement {
   }
 
   private handleKeydown(e: KeyboardEvent): void {
-    const items = this.querySelectorAll('.aurelia-cp-result');
+    const items = this.querySelectorAll<HTMLElement>('.aurelia-cp-result');
 
     switch (e.key) {
       case 'Escape':
@@ -367,11 +366,11 @@ export class AureliaCommandPaletteElement extends HTMLElement {
       case 'Enter':
         e.preventDefault();
         if (this.selectedIndex >= 0 && this.selectedIndex < this.filteredResults.length) {
-          this.filteredResults[this.selectedIndex].action();
+          this.filteredResults[this.selectedIndex]?.action();
           this.close();
         } else if (this.input?.value.trim()) {
           if (this.filteredResults.length > 0) {
-            this.filteredResults[0].action();
+            this.filteredResults[0]?.action();
             this.close();
           } else {
             this.executeAction('search-web', this.input.value);
@@ -442,7 +441,7 @@ export class AureliaCommandPaletteElement extends HTMLElement {
       return;
     }
 
-    this.resultsContainer.innerHTML = '';
+    this.resultsContainer.replaceChildren();
 
     if (this.filteredResults.length === 0) {
       const empty = document.createElement('div');
@@ -472,8 +471,7 @@ export class AureliaCommandPaletteElement extends HTMLElement {
       categoryHeader.setAttribute('aria-level', '2');
       this.resultsContainer.appendChild(categoryHeader);
 
-      for (let i = 0; i < results.length; i++) {
-        const result = results[i];
+      for (const result of results) {
         const globalIndex = this.filteredResults.indexOf(result);
 
         const item = document.createElement('div');
@@ -481,7 +479,7 @@ export class AureliaCommandPaletteElement extends HTMLElement {
         item.setAttribute('role', 'option');
         item.setAttribute('aria-selected', String(globalIndex === this.selectedIndex));
         item.tabIndex = 0;
-        item.dataset.index = String(globalIndex);
+        item.dataset['index'] = String(globalIndex);
 
         // Icon
         if (result.icon) {
@@ -561,19 +559,17 @@ export class AureliaCommandPaletteElement extends HTMLElement {
     const match = text.slice(index, index + query.length);
     const after = text.slice(index + query.length);
 
-    element.innerHTML = `${this.escapeHtml(before)}<mark class="aurelia-cp-highlight">${this.escapeHtml(match)}</mark>${this.escapeHtml(after)}`;
-  }
-
-  private escapeHtml(text: string): string {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    const mark = document.createElement('mark');
+    mark.className = 'aurelia-cp-highlight';
+    mark.textContent = match;
+    element.replaceChildren(document.createTextNode(before), mark,
+                            document.createTextNode(after));
   }
 
   private updateSelection(): void {
-    const items = this.querySelectorAll('.aurelia-cp-result');
-    items.forEach((item, index) => {
-      const globalIndex = parseInt(item.dataset.index || '-1', 10);
+    const items = this.querySelectorAll<HTMLElement>('.aurelia-cp-result');
+    items.forEach((item) => {
+      const globalIndex = parseInt(item.dataset['index'] || '-1', 10);
       if (globalIndex === this.selectedIndex) {
         item.classList.add('selected');
         item.setAttribute('aria-selected', 'true');

@@ -137,9 +137,9 @@ export function generatePatch({ checkoutPath, log = () => {} } = {}) {
 
   const meta = {
     patch: PATCH_FILE_NAME,
-    title: 'Register the chrome://aurelia WebUI and its resources',
+    title: 'Register the Aurelia status and isolated New Tab WebUIs and resources',
     description:
-      'Adds Aurelia\'s own WebUI surface to a pinned Chromium tree. All new code lives in chromium/overlay/; this patch only wires it into existing upstream build files, the WebUI config registry and the URL constant list.',
+      'Adds Aurelia\'s own WebUI surface to a pinned Chromium tree. All new code lives in chromium/overlay/; this patch only wires it into existing upstream build files, the WebUI config registry, URL constants, GRIT ID allocation and browser repacking.',
     patchSetVersion: config.patchSet.version,
     baseRevision: config.chromium.revision,
     baseVersion: config.chromium.version,

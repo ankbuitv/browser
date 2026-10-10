@@ -10,15 +10,19 @@
  * building nodes programmatically keeps that guarantee intact).
  */
 export class AureliaStatusCardElement extends HTMLElement {
+  static get is() {
+    return 'aurelia-status-card';
+  }
+
   static get observedAttributes(): string[] {
     return ['heading', 'description'];
   }
 
-  override connectedCallback(): void {
+  connectedCallback(): void {
     this.render();
   }
 
-  override attributeChangedCallback(
+  attributeChangedCallback(
       _name: string, oldValue: string|null, newValue: string|null): void {
     if (oldValue !== newValue && this.isConnected) {
       this.render();

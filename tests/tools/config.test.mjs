@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 import {
   findConfigProblems,
@@ -39,7 +41,9 @@ describe('chromium pin configuration', () => {
   });
 
   it('points at the repository root', () => {
-    expect(REPO_ROOT.endsWith('browser')).toBe(true);
+    expect(REPO_ROOT).toBe(
+      path.resolve(fileURLToPath(new URL('../..', import.meta.url))),
+    );
   });
 
   it.each([

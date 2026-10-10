@@ -322,3 +322,23 @@ describe('hosted Windows experiment', () => {
     expect(workflow).toContain('runner-capabilities.json');
   });
 });
+
+describe('fast CI API token scope', () => {
+  it('authenticates every online check with a read-only step-scoped Actions token', () => {
+    const workflow = readFileSync(
+      path.join(CANONICAL_DIR, 'ci-fast.yml'),
+      'utf8',
+    );
+    expect(workflow).toContain('permissions:\n  contents: read');
+    for (const step of workflow
+      .split('      - name: ')
+      .filter((step) =>
+        /run:.*(?:verify-pin\.mjs|verify-patches --online|check-updates)/.test(
+          step,
+        ),
+      )) {
+      expect(step).toContain('GH_TOKEN: ${{ github.token }}');
+      expect(step).not.toMatch(/continue-on-error|\|\|\s*true/);
+    }
+  });
+});

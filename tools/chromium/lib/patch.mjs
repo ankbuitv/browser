@@ -193,6 +193,7 @@ export function findPathProblems(parsedPatch) {
       problems.push(`${target} is in a forbidden area for Aurelia patches`);
     }
     if (
+      !['chrome/chrome_paks.gni', 'tools/gritsettings/resource_ids.spec'].includes(target) &&
       !EXPECTED_PATCH_PATH_PREFIXES.some((prefix) => target.startsWith(prefix))
     ) {
       problems.push(

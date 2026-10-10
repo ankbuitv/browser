@@ -160,8 +160,8 @@ export function verifyOffline(config = loadConfig()) {
 
     const missingDigests = meta.files.filter(
       (file) =>
-        typeof file.preImageSha256 !== 'string' ||
-        typeof file.postImageSha256 !== 'string',
+        !/^[0-9a-f]{64}$/.test(file.preImageSha256 ?? '') ||
+        !/^[0-9a-f]{64}$/.test(file.postImageSha256 ?? ''),
     );
     push(
       `${patchName}: records pre/post digests for every file`,
@@ -177,7 +177,7 @@ export function verifyOffline(config = loadConfig()) {
       );
       const mismatches = meta.files.filter((file) => {
         const expected = recordedByPath.get(file.path);
-        return expected !== undefined && expected !== file.preImageSha256;
+        return expected === undefined || expected !== file.preImageSha256;
       });
       push(
         `${patchName}: pre-image digests agree with the verification record`,
@@ -209,6 +209,7 @@ export function verifyOffline(config = loadConfig()) {
 export function verifyOnline({ checkoutPath, config = loadConfig() } = {}) {
   const offline = verifyOffline(config);
   const checks = [...offline.checks];
+  if (!offline.ok) return offline;
 
   const patchDirectory = patchesDir(config);
   const patchFiles = listPatchFiles(patchDirectory);

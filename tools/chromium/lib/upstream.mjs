@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { captureCommand, captureCommandBuffer } from './exec.mjs';
+import { githubEnv } from './github-env.mjs';
 
 export function sha256(buffer) {
   return createHash('sha256').update(buffer).digest('hex');
@@ -30,7 +31,7 @@ export function sha256(buffer) {
  */
 export function run(command, args, options = {}) {
   const { cwd, env } = options;
-  return captureCommand({ file: command, args, cwd, env });
+  return captureCommand({ file: command, args, cwd }, { env });
 }
 
 function ghAvailable() {
@@ -47,16 +48,17 @@ function ghAvailable() {
  * @returns {Buffer}
  */
 export function fetchUpstreamFileViaApi(slug, revision, filePath) {
-  const encodedPath = filePath
-    .split('/')
-    .map(encodeURIComponent)
-    .join('/');
-  const raw = run('gh', [
-    'api',
-    `repos/${slug}/contents/${encodedPath}?ref=${revision}`,
-    '--jq',
-    '.content',
-  ]);
+  const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+  const raw = run(
+    'gh',
+    [
+      'api',
+      `repos/${slug}/contents/${encodedPath}?ref=${revision}`,
+      '--jq',
+      '.content',
+    ],
+    { env: githubEnv() },
+  );
   const cleaned = raw.replace(/\s+/g, '');
   return Buffer.from(cleaned, 'base64');
 }

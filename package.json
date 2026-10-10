@@ -16,7 +16,7 @@
     "build": "npm run build --workspaces --if-present",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b --pretty false",
+    "typecheck": "tsc -b --pretty false && npm run typecheck:overlay",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
@@ -26,7 +26,8 @@
     "chromium:check-updates": "node tools/chromium/cli.mjs check-updates",
     "chromium:plan": "node tools/chromium/cli.mjs plan",
     "patches:verify": "node tools/chromium/cli.mjs verify-patches",
-    "patches:list": "node tools/chromium/cli.mjs list-patches"
+    "patches:list": "node tools/chromium/cli.mjs list-patches",
+    "typecheck:overlay": "tsc -p tests/tsconfig.overlay.json --pretty false"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
@@ -41,10 +42,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ankbuitv/browser.git"
+    "url": "https://github.com/ankworks/aurelia.git"
   },
-  "homepage": "https://github.com/ankbuitv/browser",
+  "homepage": "https://github.com/ankworks/aurelia",
   "bugs": {
-    "url": "https://github.com/ankbuitv/browser/issues"
+    "url": "https://github.com/ankworks/aurelia/issues"
   }
 }

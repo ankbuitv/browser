@@ -21,7 +21,7 @@ export class AureliaNewTabElement extends HTMLElement {
 
   private searchInput: HTMLInputElement | null = null;
 
-  override connectedCallback(): void {
+  connectedCallback(): void {
     if (this.hasAttribute('data-rendered')) {
       return;
     }

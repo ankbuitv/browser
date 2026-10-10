@@ -12,8 +12,8 @@ This is the short version. The authoritative, detailed guide is
 ## 1. Working on Aurelia's own code (no Chromium needed)
 
 ```bash
-git clone https://github.com/ankbuitv/browser.git
-cd browser
+git clone https://github.com/ankworks/aurelia.git
+cd aurelia
 npm ci
 
 npm test                          # unit tests

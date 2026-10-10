@@ -21,14 +21,14 @@ patched-up copy of a Chromium subsystem.
 
 ## Measured delta
 
-| Metric                                          | Value        |
-| ----------------------------------------------- | ------------ |
-| Patch files                                     | 1            |
-| Modified upstream files                         | 6            |
-| Lines added to upstream files                   | 7            |
-| Lines removed from upstream files               | 0            |
-| Overlay files added (new files, no rebase risk) | 10           |
-| Overlay size                                    | 23,691 bytes |
+| Metric                            | Value        |
+| --------------------------------- | ------------ |
+| Patch files                       | 1            |
+| Modified upstream files           | 8            |
+| Lines added to upstream files     | 26           |
+| Lines removed from upstream files | 0            |
+| Overlay files added               | 20           |
+| Overlay size                      | 87,565 bytes |
 
 Reproduce with:
 
@@ -43,14 +43,20 @@ Every entry is an insertion, in an area upstream rarely rewrites. None of them
 changes Chromium behaviour; they register Aurelia code that lives in
 `chromium/overlay/`.
 
-| #   | File                                               | Δ   | Component             | Reason                                                                                               | Rebase difficulty | Could become an overlay? | Upstreamable?         |
-| --- | -------------------------------------------------- | --- | --------------------- | ---------------------------------------------------------------------------------------------------- | ----------------- | ------------------------ | --------------------- |
-| 1   | `chrome/common/webui_url_constants.h`              | +1  | `webui-url-constants` | Declare the `chrome://aurelia` host constant next to the other WebUI hosts.                          | trivial           | no                       | no (Aurelia-specific) |
-| 2   | `chrome/browser/resources/BUILD.gn`                | +1  | `resources`           | Include `aurelia:resources` in the browser resources group.                                          | trivial           | no                       | no                    |
-| 3   | `chrome/browser/ui/webui/BUILD.gn`                 | +1  | `webui`               | Add `//chrome/browser/ui/webui/aurelia` to the desktop WebUI deps.                                   | trivial           | no                       | no                    |
-| 4   | `chrome/browser/ui/BUILD.gn`                       | +1  | `browser-ui`          | Link the controller into `//chrome/browser/ui`.                                                      | trivial           | no                       | no                    |
-| 5   | `chrome/browser/BUILD.gn`                          | +1  | `browser`             | Link the controller into `//chrome/browser`.                                                         | trivial           | no                       | no                    |
-| 6   | `chrome/browser/ui/webui/chrome_web_ui_configs.cc` | +2  | `webui`               | `#include` the controller header and call `map.AddWebUIConfig(std::make_unique<AureliaUIConfig>())`. | trivial           | no                       | no                    |
+| File                                               | Delta | Reason                                                      |
+| -------------------------------------------------- | ----- | ----------------------------------------------------------- |
+| `chrome/common/webui_url_constants.h`              | +2    | Declare the two isolated Aurelia hosts.                     |
+| `chrome/browser/resources/BUILD.gn`                | +2    | Build both resource bundles.                                |
+| `chrome/browser/ui/webui/BUILD.gn`                 | +2    | Link both controllers to the WebUI config registry.         |
+| `chrome/browser/ui/BUILD.gn`                       | +2    | Link controllers into browser UI.                           |
+| `chrome/browser/BUILD.gn`                          | +2    | Link controllers into the browser.                          |
+| `chrome/browser/ui/webui/chrome_web_ui_configs.cc` | +4    | Include and register both controllers in the desktop guard. |
+| `chrome/chrome_paks.gni`                           | +4    | Repack both generated paks with explicit dependencies.      |
+| `tools/gritsettings/resource_ids.spec`             | +8    | Allocate IDs for both generated GRDs, 20 resources each.    |
+
+All are Aurelia-specific registrations; none redirects `chrome://newtab`.
+The malformed M1 patch `0002` was consolidated into generator-owned `0001`:
+one atomic patch against untouched pinned upstream, not mixed pre/post contexts.
 
 Machine-readable version of this table (including the exact anchor text each
 edit inserts at, pre-image and post-image digests):
@@ -74,15 +80,19 @@ only thing that can break is an API they call, not a conflict.
 | `chrome/browser/resources/aurelia/aurelia.css`            | Page styles (tokens only, accessibility fallbacks).                                                 |
 | `chrome/browser/resources/aurelia/design_tokens.css`      | **Generated** from `packages/design-tokens/tokens.json`.                                            |
 
-## Known integration caveat (must be re-checked on the first heavy build)
+The table above lists the original status surface. M1 additionally carries
+New Tab HTML/CSS/TypeScript and its C++ controller/BUILD files, command palette
+TS/CSS, and a generated copy of design tokens under the New Tab resource origin.
+Run `fork-delta --json` for current totals.
 
-The `AureliaUIConfig` registration lands inside the
-`#else  // BUILDFLAG(IS_ANDROID)` / `#if !BUILDFLAG(IS_CHROMEOS)` block of
-`RegisterChromeWebUIConfigs()`. That is correct for Windows, macOS and Linux
-desktop builds, and means `chrome://aurelia` is **not** registered on ChromeOS
-or Android builds. If Aurelia later targets those platforms, the registration
-moves to a platform-appropriate block; this is recorded here so it is not
-forgotten during review.
+## Integration verification boundary
+
+Both configs now register in the desktop `!IS_ANDROID` branch alongside the
+upstream `NewTabUIConfig`, outside the AppHome ChromeOS guard. The new controller
+is named `AureliaNewTabUI` to avoid colliding with upstream's incognito controller.
+The generated `.grd` files feed Chromium's ID allocator and GRIT, which produces
+headers, maps and paks. The desktop repack includes both paks. Static checks are
+not compilation or runtime evidence; see [M1 finalization audit](M1-FINALIZATION.md).
 
 ## What would grow the delta (and why we avoid it)
 

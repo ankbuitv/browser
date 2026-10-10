@@ -6,8 +6,8 @@
 
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/webui_url_constants.h"
-#include "chrome/grit/newtab_resources.h"
-#include "chrome/grit/newtab_resources_map.h"
+#include "chrome/grit/aurelia_newtab_resources.h"
+#include "chrome/grit/aurelia_newtab_resources_map.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "services/network/public/mojom/content_security_policy.mojom.h"
@@ -21,30 +21,27 @@ namespace {
 // It provides a search/URL input and quick access to browser features.
 //
 // STATUS: SCAFFOLDED - Data source setup written, not compiled yet.
-void CreateAndAddNewTabUIHtmlSource(Profile* profile) {
+void CreateAndAddAureliaNewTabUIHtmlSource(Profile* profile) {
   content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
       profile, chrome::kChromeUINewTabAureliaHost);
 
-  webui::SetupWebUIDataSource(source, kNewtabResources,
-                              IDR_NEWTAB_NEWTAB_HTML);
+  webui::SetupWebUIDataSource(source, kAureliaNewtabResources,
+                            IDR_AURELIA_NEWTAB_NEWTAB_HTML);
 
   // New tab pages are never embedded. The remaining CSP comes from
   // SetupWebUIDataSource() (which enables trusted types and a strict policy).
   source->OverrideContentSecurityPolicy(
       network::mojom::CSPDirectiveName::FrameAncestors,
       "frame-ancestors 'none';");
-
-  // Set the page title
-  source->SetDefaultResource(IDR_NEWTAB_NEWTAB_HTML);
 }
 
 }  // namespace
 
-NewTabUI::NewTabUI(content::WebUI* web_ui)
+AureliaNewTabUI::AureliaNewTabUI(content::WebUI* web_ui)
     : ui::MojoWebUIController(web_ui, /*enable_chrome_send=*/false) {
-  CreateAndAddNewTabUIHtmlSource(Profile::FromWebUI(web_ui));
+  CreateAndAddAureliaNewTabUIHtmlSource(Profile::FromWebUI(web_ui));
 }
 
-NewTabUI::~NewTabUI() = default;
+AureliaNewTabUI::~AureliaNewTabUI() = default;
 
-WEB_UI_CONTROLLER_TYPE_IMPL(NewTabUI)
+WEB_UI_CONTROLLER_TYPE_IMPL(AureliaNewTabUI)

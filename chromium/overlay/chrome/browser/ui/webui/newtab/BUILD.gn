@@ -2,31 +2,23 @@
 # Use of this source code is governed by the Mozilla Public License, v. 2.0,
 # that can be found in the LICENSE file at the repository root.
 
-import "//chrome/browser/ui/webui/webui.gni"
-import "//chrome/common/webui_url_constants.h"
-import "//ui/webui/mojo_web_ui_controller.gni"
+assert(!is_android)
 
-# New Tab WebUI controller
-# STATUS: SCAFFOLDED - GN target written, not compiled yet.
-webui_controller("newtab") {
-  name = "newtab"
-  controller_class = "NewTabUI"
-  controller_header = "newtab_ui.h"
-  controller_source = "newtab_ui.cc"
-  config_name = "NewTabUIConfig"
-  webui_host = kChromeUINewTabAureliaHost
-  webui_type = DEFAULT_INTERNAL
+source_set("newtab") {
+  sources = [ "newtab_ui.cc" ]
+  public = [ "newtab_ui.h" ]
 
-  # Resources
-  resources = [ "//chrome/browser/resources/newtab" ]
+  public_deps = [ "//chrome/browser:browser_public_dependencies" ]
+  allow_circular_includes_from =
+      [ "//chrome/browser:browser_public_dependencies" ]
 
-  # Dependencies
   deps = [
-    "//chrome/browser/profiles",
-    "//chrome/browser/ui/webui",
-    "//chrome/common/webui_url_constants",
+    "//base",
+    "//chrome/browser/profiles:profile",
+    "//chrome/browser/resources/newtab:resources",
+    "//chrome/common",
     "//content/public/browser",
-    "//services/network/public/mojom:content_security_policy",
+    "//services/network/public/mojom",
     "//ui/webui",
   ]
 }
