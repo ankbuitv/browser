@@ -1,0 +1,32 @@
+# Copyright 2026 The Aurelia Authors
+# Use of this source code is governed by the Mozilla Public License, v. 2.0,
+# that can be found in the LICENSE file at the repository root.
+
+import "//chrome/browser/ui/webui/webui.gni"
+import "//chrome/common/webui_url_constants.h"
+import "//ui/webui/mojo_web_ui_controller.gni"
+
+# New Tab WebUI controller
+# STATUS: SCAFFOLDED - GN target written, not compiled yet.
+webui_controller("newtab") {
+  name = "newtab"
+  controller_class = "NewTabUI"
+  controller_header = "newtab_ui.h"
+  controller_source = "newtab_ui.cc"
+  config_name = "NewTabUIConfig"
+  webui_host = kChromeUINewTabAureliaHost
+  webui_type = DEFAULT_INTERNAL
+
+  # Resources
+  resources = [ "//chrome/browser/resources/newtab" ]
+
+  # Dependencies
+  deps = [
+    "//chrome/browser/profiles",
+    "//chrome/browser/ui/webui",
+    "//chrome/common/webui_url_constants",
+    "//content/public/browser",
+    "//services/network/public/mojom:content_security_policy",
+    "//ui/webui",
+  ]
+}

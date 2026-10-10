@@ -18,6 +18,7 @@ build_webui("build") {
   css_files = [
     "aurelia.css",
     "design_tokens.css",
+    "command_palette.css",
   ]
   ts_files = [
     "aurelia_app.ts",

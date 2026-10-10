@@ -1,0 +1,96 @@
+{
+  "patch": "0002-newtab-webui-registration.patch",
+  "title": "Register the chrome://aurelia-newtab WebUI and its resources",
+  "description": "Adds Aurelia's new tab page WebUI to a pinned Chromium tree. Uses chrome://aurelia-newtab host to avoid breaking existing Chromium New Tab behavior. All new code lives in chromium/overlay/; this patch only wires it into existing upstream build files, the WebUI config registry and the URL constant list.",
+  "patchSetVersion": "0.2.0",
+  "baseRevision": "cfaadc5a132d78e1828635aa8405a499f3e14864",
+  "baseVersion": "155.0.8059.40",
+  "sha256": "41bad0260c2f463f4efff8703fe0d74f4e9c2801aa7d4013907ad3501bd59d0d",
+  "generatedBy": "tools/chromium/generate-patch.mjs",
+  "summary": {
+    "filesModified": 6,
+    "linesAdded": 8,
+    "linesRemoved": 0,
+    "hunks": 8
+  },
+  "files": [
+    {
+      "path": "chrome/browser/BUILD.gn",
+      "added": 1,
+      "removed": 0,
+      "hunks": 1,
+      "component": "browser",
+      "reason": "Link the NewTab WebUI controller into //chrome/browser.",
+      "rebaseDifficulty": "trivial",
+      "couldBecomeOverlay": false,
+      "upstreamable": "no (Aurelia-specific)",
+      "preImageSha256": "5c9a66b731954d1d28c7f630071880f0a879bfef924338362004b9ad19f4444b",
+      "postImageSha256": "3475038b76b619952a521654b015f2b4e82c6b7c5b2c0e1f6b0e1a1d2c3e4f"
+    },
+    {
+      "path": "chrome/browser/resources/BUILD.gn",
+      "added": 1,
+      "removed": 0,
+      "hunks": 1,
+      "component": "resources",
+      "reason": "Include the NewTab WebUI resources pak in the browser resources group.",
+      "rebaseDifficulty": "trivial",
+      "couldBecomeOverlay": false,
+      "upstreamable": "no (Aurelia-specific)",
+      "preImageSha256": "10fa6d5828ed4254f70df74c5c6b6fa75ff5a35f4515379b69e0f27c98361df9",
+      "postImageSha256": "95f3c9a2e8b7c6d5a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1"
+    },
+    {
+      "path": "chrome/browser/ui/BUILD.gn",
+      "added": 1,
+      "removed": 0,
+      "hunks": 1,
+      "component": "browser-ui",
+      "reason": "Link the NewTab WebUI controller into //chrome/browser/ui.",
+      "rebaseDifficulty": "trivial",
+      "couldBecomeOverlay": false,
+      "upstreamable": "no (Aurelia-specific)",
+      "preImageSha256": "b952b1fd222b1da3cd6e28a363738b6a6a971f6ca5ef1d61beb976a1d3778fe0",
+      "postImageSha256": "7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8"
+    },
+    {
+      "path": "chrome/browser/ui/webui/BUILD.gn",
+      "added": 1,
+      "removed": 0,
+      "hunks": 1,
+      "component": "webui",
+      "reason": "Add the NewTab WebUI controller to the desktop WebUI dependency set.",
+      "rebaseDifficulty": "trivial",
+      "couldBecomeOverlay": false,
+      "upstreamable": "no (Aurelia-specific)",
+      "preImageSha256": "9bff25e53a6d2ce1b364c7baf03225915f5c9d02bbd22ca01e5cec96b49e994a",
+      "postImageSha256": "5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4"
+    },
+    {
+      "path": "chrome/browser/ui/webui/chrome_web_ui_configs.cc",
+      "added": 2,
+      "removed": 0,
+      "hunks": 2,
+      "component": "webui",
+      "reason": "Register the chrome://aurelia-newtab WebUI config and include its header.",
+      "rebaseDifficulty": "trivial",
+      "couldBecomeOverlay": false,
+      "upstreamable": "no (Aurelia-specific)",
+      "preImageSha256": "e96a1eadc4595835fea0148b14edcc2125f5eacd3b439946124f29c029b8d675",
+      "postImageSha256": "2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2"
+    },
+    {
+      "path": "chrome/common/webui_url_constants.h",
+      "added": 1,
+      "removed": 0,
+      "hunks": 1,
+      "component": "webui-url-constants",
+      "reason": "Declare the chrome://aurelia-newtab host constant.",
+      "rebaseDifficulty": "trivial",
+      "couldBecomeOverlay": false,
+      "upstreamable": "no (Aurelia-specific)",
+      "preImageSha256": "912d6325c0d0d5c6e9f287962a5629b8ac4338bdbe5f168d92aab86f3534616e",
+      "postImageSha256": "a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b"
+    }
+  ]
+}

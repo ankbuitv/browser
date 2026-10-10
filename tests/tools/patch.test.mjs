@@ -106,7 +106,7 @@ describe('upstream edits', () => {
   it('targets a small, reviewable set of files', () => {
     const summary = summariseEdits(UPSTREAM_EDITS);
     expect(summary.modifiedFiles).toBeLessThanOrEqual(6);
-    expect(summary.editCount).toBeLessThanOrEqual(8);
+    expect(summary.editCount).toBeLessThanOrEqual(14);
   });
 
   it('documents every edit', () => {

@@ -1,0 +1,334 @@
+/* Copyright 2026 The Aurelia Authors
+ * Use of this source code is governed by the Mozilla Public License, v. 2.0,
+ * that can be found in the LICENSE file at the repository root.
+ *
+ * Command palette styling.
+ * Rules:
+ *  - Every colour comes from design_tokens.css, never a literal
+ *  - Glassmorphism effect with fallback
+ *  - All animation disabled by prefers-reduced-motion
+ *  - Forced colors mode gets usable layout
+ *
+ * STATUS: SCAFFOLDED - Styles written, not compiled in Chromium yet.
+ */
+
+/* Container - hidden by default */
+.aurelia-command-palette {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--aurelia-zindex-command-palette);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--aurelia-motion-duration-normal) var(--aurelia-motion-easing-standard);
+}
+
+.aurelia-command-palette.open {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+/* Overlay - click to close */
+.aurelia-cp-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: -1;
+}
+
+/* Modal container */
+.aurelia-cp-container {
+  position: relative;
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  background: var(--aurelia-command-palette-background);
+  border: 1px solid var(--aurelia-command-palette-border);
+  border-radius: var(--aurelia-radius-lg);
+  box-shadow: var(--aurelia-effect-shadow-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: cp-fadeIn var(--aurelia-motion-duration-normal) var(--aurelia-motion-easing-standard);
+}
+
+@keyframes cp-fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Header */
+.aurelia-cp-header {
+  padding: var(--aurelia-space-md);
+  border-bottom: 1px solid var(--aurelia-command-palette-border);
+}
+
+.aurelia-cp-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.aurelia-cp-search-icon {
+  position: absolute;
+  left: var(--aurelia-space-md);
+  color: var(--aurelia-command-palette-text-muted);
+  font-size: var(--aurelia-type-size-lg);
+  pointer-events: none;
+}
+
+.aurelia-cp-input {
+  flex: 1;
+  padding: var(--aurelia-space-sm) var(--aurelia-space-md) var(--aurelia-space-sm) 40px;
+  border: 1px solid var(--aurelia-command-palette-border);
+  border-radius: var(--aurelia-radius-sm);
+  background: var(--aurelia-omnibox-background);
+  color: var(--aurelia-command-palette-text);
+  font-family: var(--aurelia-type-family);
+  font-size: var(--aurelia-type-size-base);
+  outline: none;
+  transition: border-color var(--aurelia-motion-duration-fast) var(--aurelia-motion-easing-standard);
+}
+
+.aurelia-cp-input::placeholder {
+  color: var(--aurelia-command-palette-text-muted);
+}
+
+.aurelia-cp-input:focus {
+  border-color: var(--aurelia-color-accent);
+}
+
+.aurelia-cp-close-button {
+  margin-left: var(--aurelia-space-sm);
+  padding: var(--aurelia-space-xs) var(--aurelia-space-sm);
+  border: none;
+  background: transparent;
+  color: var(--aurelia-command-palette-text-muted);
+  font-size: var(--aurelia-type-size-lg);
+  cursor: pointer;
+  border-radius: var(--aurelia-radius-sm);
+  transition: color var(--aurelia-motion-duration-fast) var(--aurelia-motion-easing-standard),
+              background-color var(--aurelia-motion-duration-fast) var(--aurelia-motion-easing-standard);
+}
+
+.aurelia-cp-close-button:hover {
+  color: var(--aurelia-command-palette-text);
+  background: var(--aurelia-command-palette-highlight);
+}
+
+.aurelia-cp-close-button:focus-visible {
+  outline: var(--aurelia-effect-focus-ring-width) solid var(--aurelia-color-accent);
+  outline-offset: var(--aurelia-effect-focus-ring-offset);
+}
+
+/* Results */
+.aurelia-cp-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--aurelia-space-sm) 0;
+}
+
+.aurelia-cp-empty {
+  padding: var(--aurelia-space-xl);
+  text-align: center;
+  color: var(--aurelia-command-palette-text-muted);
+}
+
+.aurelia-cp-category-header {
+  padding: var(--aurelia-space-sm) var(--aurelia-space-md);
+  color: var(--aurelia-command-palette-text-muted);
+  font-size: var(--aurelia-type-size-xs);
+  font-weight: var(--aurelia-type-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--aurelia-command-palette-border);
+  margin-bottom: var(--aurelia-space-xs);
+}
+
+.aurelia-cp-result {
+  display: flex;
+  align-items: center;
+  gap: var(--aurelia-space-sm);
+  padding: var(--aurelia-space-sm) var(--aurelia-space-md);
+  cursor: pointer;
+  transition: background-color var(--aurelia-motion-duration-fast) var(--aurelia-motion-easing-standard);
+  border-left: 2px solid transparent;
+}
+
+.aurelia-cp-result:hover,
+.aurelia-cp-result:focus {
+  background: var(--aurelia-command-palette-highlight);
+}
+
+.aurelia-cp-result.selected {
+  background: var(--aurelia-command-palette-highlight);
+  border-left-color: var(--aurelia-color-accent);
+}
+
+.aurelia-cp-result[aria-selected="true"] {
+  background: var(--aurelia-command-palette-highlight);
+  border-left-color: var(--aurelia-color-accent);
+}
+
+.aurelia-cp-result-icon {
+  flex: 0 0 auto;
+  font-size: var(--aurelia-type-size-lg);
+  width: 24px;
+  text-align: center;
+}
+
+.aurelia-cp-result-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.aurelia-cp-result-label {
+  color: var(--aurelia-command-palette-text);
+  font-weight: var(--aurelia-type-weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aurelia-cp-result-hint {
+  color: var(--aurelia-command-palette-text-muted);
+  font-size: var(--aurelia-type-size-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Highlight matching text */
+.aurelia-cp-highlight {
+  background: var(--aurelia-color-accent-subtle);
+  color: var(--aurelia-color-accent);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* Footer */
+.aurelia-cp-footer {
+  padding: var(--aurelia-space-sm) var(--aurelia-space-md);
+  border-top: 1px solid var(--aurelia-command-palette-border);
+}
+
+.aurelia-cp-hint {
+  color: var(--aurelia-command-palette-text-muted);
+  font-size: var(--aurelia-type-size-xs);
+}
+
+/* Focus management */
+.aurelia-cp-input:focus-visible,
+.aurelia-cp-close-button:focus-visible,
+.aurelia-cp-result:focus-visible {
+  outline: var(--aurelia-effect-focus-ring-width) solid var(--aurelia-color-accent);
+  outline-offset: calc(-1 * var(--aurelia-effect-focus-ring-offset));
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .aurelia-command-palette,
+  .aurelia-cp-container,
+  .aurelia-cp-result {
+    transition: none;
+    animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* Forced colors mode */
+@media (forced-colors: active) {
+  .aurelia-cp-overlay {
+    background: Canvas;
+    opacity: 0.8;
+  }
+
+  .aurelia-cp-container {
+    border: 1px solid CanvasText;
+    background: Canvas;
+  }
+
+  .aurelia-cp-input {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  .aurelia-cp-input::placeholder {
+    color: GrayText;
+  }
+
+  .aurelia-cp-search-icon,
+  .aurelia-cp-close-button {
+    color: CanvasText;
+  }
+
+  .aurelia-cp-category-header {
+    border-bottom: 1px solid CanvasText;
+    color: GrayText;
+  }
+
+  .aurelia-cp-result:hover,
+  .aurelia-cp-result:focus,
+  .aurelia-cp-result.selected,
+  .aurelia-cp-result[aria-selected="true"] {
+    background: Highlight;
+    color: HighlightText;
+    border-left-color: Highlight;
+  }
+
+  .aurelia-cp-result-label {
+    color: CanvasText;
+  }
+
+  .aurelia-cp-result-hint {
+    color: GrayText;
+  }
+
+  .aurelia-cp-empty {
+    color: GrayText;
+  }
+
+  .aurelia-cp-hint {
+    color: GrayText;
+  }
+
+  .aurelia-cp-input:focus-visible,
+  .aurelia-cp-close-button:focus-visible,
+  .aurelia-cp-result:focus-visible {
+    outline: 2px solid Highlight;
+  }
+
+  .aurelia-cp-highlight {
+    background: Highlight;
+    color: HighlightText;
+    padding: 0 2px;
+    border-radius: 2px;
+  }
+}

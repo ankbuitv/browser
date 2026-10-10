@@ -1,0 +1,19 @@
+# Copyright 2026 The Aurelia Authors
+# Use of this source code is governed by the Mozilla Public License, v. 2.0,
+# that can be found in the LICENSE file at the repository root.
+
+import "//build/webui/webui.gni"
+
+# New Tab page resources
+# STATUS: SCAFFOLDED - GN configuration written, not compiled yet.
+build_webui("newtab") {
+  name = "newtab_resources"
+  html = "newtab.html"
+  js_modules = [ "newtab_app.js" ]
+  css = [
+    "newtab.css",
+    "//chrome/browser/resources/aurelia/design_tokens.css",
+  ]
+  webui_pak = true
+  grit_prefix = "newtab"
+}

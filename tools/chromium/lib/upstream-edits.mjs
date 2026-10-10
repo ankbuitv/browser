@@ -18,6 +18,8 @@
 /** Where the Aurelia WebUI controller lives inside the Chromium tree. */
 export const AURELIA_WEBUI_TARGET = '//chrome/browser/ui/webui/aurelia';
 export const AURELIA_RESOURCES_TARGET = '//chrome/browser/resources/aurelia';
+export const NEWTAB_WEBUI_TARGET = '//chrome/browser/ui/webui/newtab';
+export const NEWTAB_RESOURCES_TARGET = '//chrome/browser/resources/newtab';
 
 export const UPSTREAM_EDITS = [
   {
@@ -127,6 +129,121 @@ export const UPSTREAM_EDITS = [
     replace: [
       '  map.AddWebUIConfig(std::make_unique<AureliaUIConfig>());',
       '  map.AddWebUIConfig(std::make_unique<AppHomeUIConfig>());',
+    ].join('\n'),
+  },
+  {
+    path: 'chrome/common/webui_url_constants.h',
+    component: 'webui-url-constants',
+    reason: 'Declare the chrome://aurelia-newtab host constant.',
+    rebaseDifficulty: 'trivial',
+    couldBecomeOverlay: false,
+    upstreamable: 'no (Aurelia-specific)',
+    find: 'inline constexpr char kChromeUIAureliaHost[] = "aurelia";',
+    replace: [
+      'inline constexpr char kChromeUIAureliaHost[] = "aurelia";',
+      'inline constexpr char kChromeUINewTabAureliaHost[] = "aurelia-newtab";',
+    ].join('\n'),
+  },
+  {
+    path: 'chrome/browser/resources/BUILD.gn',
+    component: 'resources',
+    reason: 'Include the NewTab WebUI resources pak in the browser resources group.',
+    rebaseDifficulty: 'trivial',
+    couldBecomeOverlay: false,
+    upstreamable: 'no (Aurelia-specific)',
+    find: [
+      '      "app_service_internals:resources",',
+      '      "aurelia:resources",',
+    ].join('\n'),
+    replace: [
+      '      "app_service_internals:resources",',
+      '      "aurelia:resources",',
+      '      "newtab:resources",',
+    ].join('\n'),
+  },
+  {
+    path: 'chrome/browser/ui/webui/BUILD.gn',
+    component: 'webui',
+    reason: 'Add the NewTab WebUI controller to the desktop WebUI dependency set.',
+    rebaseDifficulty: 'trivial',
+    couldBecomeOverlay: false,
+    upstreamable: 'no (Aurelia-specific)',
+    find: [
+      '  if (!is_android) {',
+      '    deps += [',
+      `      "${AURELIA_WEBUI_TARGET}",`,
+      '      "//chrome/browser/ui/webui/bookmarks",',
+    ].join('\n'),
+    replace: [
+      '  if (!is_android) {',
+      '    deps += [',
+      `      "${AURELIA_WEBUI_TARGET}",`,
+      `      "${NEWTAB_WEBUI_TARGET}",`,
+      '      "//chrome/browser/ui/webui/bookmarks",',
+    ].join('\n'),
+  },
+  {
+    path: 'chrome/browser/ui/BUILD.gn',
+    component: 'browser-ui',
+    reason: 'Link the NewTab WebUI controller into //chrome/browser/ui.',
+    rebaseDifficulty: 'trivial',
+    couldBecomeOverlay: false,
+    upstreamable: 'no (Aurelia-specific)',
+    find: [
+      '      "//chrome/browser/ui/web_modal:browser_window_modal_dialog_delegate",',
+      `      "${AURELIA_WEBUI_TARGET}",`,
+      '      "//chrome/browser/ui/webui/webui_gallery",',
+    ].join('\n'),
+    replace: [
+      '      "//chrome/browser/ui/web_modal:browser_window_modal_dialog_delegate",',
+      `      "${AURELIA_WEBUI_TARGET}",`,
+      `      "${NEWTAB_WEBUI_TARGET}",`,
+      '      "//chrome/browser/ui/webui/webui_gallery",',
+    ].join('\n'),
+  },
+  {
+    path: 'chrome/browser/BUILD.gn',
+    component: 'browser',
+    reason: 'Link the NewTab WebUI controller into //chrome/browser.',
+    rebaseDifficulty: 'trivial',
+    couldBecomeOverlay: false,
+    upstreamable: 'no (Aurelia-specific)',
+    find: [
+      '      "//chrome/browser/ui/webui/app_service_internals",',
+      `      "${AURELIA_WEBUI_TARGET}",`,
+      '      "//chrome/browser/ui/webui/autofill_ml_internals",',
+    ].join('\n'),
+    replace: [
+      '      "//chrome/browser/ui/webui/app_service_internals",',
+      `      "${AURELIA_WEBUI_TARGET}",`,
+      `      "${NEWTAB_WEBUI_TARGET}",`,
+      '      "//chrome/browser/ui/webui/autofill_ml_internals",',
+    ].join('\n'),
+  },
+  {
+    path: 'chrome/browser/ui/webui/chrome_web_ui_configs.cc',
+    component: 'webui',
+    reason: 'Register the chrome://aurelia-newtab WebUI config and include its header.',
+    rebaseDifficulty: 'trivial',
+    couldBecomeOverlay: false,
+    upstreamable: 'no (Aurelia-specific)',
+    find: '#include "chrome/browser/ui/webui/autofill_and_password_manager_internals/password_manager_internals_ui.h"',
+    replace: [
+      '#include "chrome/browser/ui/webui/newtab/newtab_ui.h"',
+      '#include "chrome/browser/ui/webui/autofill_and_password_manager_internals/password_manager_internals_ui.h"',
+    ].join('\n'),
+  },
+  {
+    path: 'chrome/browser/ui/webui/chrome_web_ui_configs.cc',
+    component: 'webui',
+    reason: 'Make chrome://aurelia-newtab a registered WebUI page.',
+    rebaseDifficulty: 'trivial',
+    couldBecomeOverlay: false,
+    upstreamable: 'no (Aurelia-specific)',
+    find: '  map.AddWebUIConfig(std::make_unique<AureliaUIConfig>());',
+    replace: [
+      '  map.AddWebUIConfig(std::make_unique<AureliaUIConfig>());',
+      '  map.AddWebUIConfig(std::make_unique<NewTabUIConfig>());',
     ].join('\n'),
   },
 ];

@@ -7,6 +7,7 @@ follows the established thin-fork, isolated-code principle.
 ## Overview
 
 M1 implements the core browser shell with:
+
 - **Native browser chrome** (C++/Views) for window frame, tab strip, toolbar
 - **WebUI surfaces** (TypeScript/CSS) for new tab page and command palette
 - **Glassmorphism-inspired visual system** with dark/light themes
@@ -42,12 +43,14 @@ M1 implements the core browser shell with:
 **Location:** `chromium/overlay/chrome/browser/ui/webui/newtab/`
 
 **Files:**
+
 - `newtab_ui.h` / `newtab_ui.cc` - C++ controller
 - `newtab.html` - Page shell
 - `newtab_app.ts` - Main page element
 - `newtab.css` - Page styles
 
 **Registration:** Requires patching 6 upstream files (similar to `chrome://aurelia`):
+
 - `chrome/common/webui_url_constants.h` - Add `kChromeUINewTabHost`
 - `chrome/browser/resources/BUILD.gn` - Include newtab resources
 - `chrome/browser/ui/webui/BUILD.gn` - Add newtab target
@@ -56,6 +59,7 @@ M1 implements the core browser shell with:
 - `chrome/browser/ui/webui/chrome_web_ui_configs.cc` - Register config
 
 **Functionality:**
+
 - Static wallpaper (built-in, no network)
 - Minimal UI - no news, no ads, no AI
 - Quick access to command palette
@@ -66,16 +70,19 @@ M1 implements the core browser shell with:
 **Location:** `chromium/overlay/chrome/browser/resources/aurelia/command_palette/`
 
 **Files:**
+
 - `command_palette.ts` - Main component
 - `command_palette.css` - Styles
 
 **Integration:**
+
 - Triggered by Ctrl+K / Cmd+K accelerator
 - Opens as a modal overlay from the browser frame
 - Searches: tabs, bookmarks, history, settings, browser commands
 - Fuzzy matching with keyboard navigation
 
 **Accelerator Registration:**
+
 - Requires patching `chrome/browser/ui/accelerators/accelerator_configuration.cc`
 - Or using existing command system via `ui::Accelerator`
 
@@ -84,10 +91,12 @@ M1 implements the core browser shell with:
 **Location:** `chromium/overlay/chrome/browser/ui/views/frame/`
 
 **Files:**
+
 - `aurelia_frame_view.h` / `aurelia_frame_view.cc` - Custom frame view
 - Extends `BrowserFrameView` or `OpaqueBrowserFrameView`
 
 **Customizations:**
+
 - Custom window controls (close, minimize, maximize)
 - Glassmorphism effect on Windows
 - DPI scaling support
@@ -99,10 +108,12 @@ M1 implements the core browser shell with:
 **Location:** `chromium/overlay/chrome/browser/ui/views/tabs/`
 
 **Files:**
+
 - `aurelia_tab_strip.h` / `aurelia_tab_strip.cc` - Custom tab strip
 - Extends `TabStrip`
 
 **Customizations:**
+
 - Rounded tab corners (top only)
 - Glass effect on active tab
 - Subtle borders between tabs
@@ -114,10 +125,12 @@ M1 implements the core browser shell with:
 **Location:** `chromium/overlay/chrome/browser/ui/views/location_bar/`
 
 **Files:**
+
 - `aurelia_location_bar.h` / `aurelia_location_bar.cc` - Custom location bar
 - Extends `LocationBarView`
 
 **Customizations:**
+
 - Custom styling (radius, colors)
 - Integration with Aurelia search engine preferences
 - Custom focus states
@@ -265,20 +278,22 @@ Following M0's approach:
 
 **New patches required for M1:**
 
-| Patch # | Purpose | Files Modified | Lines Added |
-|---------|---------|----------------|--------------|
-| 0002 | Register `chrome://newtab` WebUI | 6 | 7 |
-| 0003 | Register Ctrl+K accelerator for command palette | 1-2 | 3-5 |
+| Patch # | Purpose                                         | Files Modified | Lines Added |
+| ------- | ----------------------------------------------- | -------------- | ----------- |
+| 0002    | Register `chrome://newtab` WebUI                | 6              | 7           |
+| 0003    | Register Ctrl+K accelerator for command palette | 1-2            | 3-5         |
 
 ## Implementation Order
 
 ### Phase 1: WebUI Components (Testable in UI Lab)
+
 1. ✅ Extend design tokens for M1
 2. Create New Tab WebUI components
 3. Create Command Palette WebUI components
 4. Test in `packages/ui-lab` harness
 
 ### Phase 2: C++ Integration (Requires Full Build)
+
 1. Create `chrome://newtab` WebUI controller
 2. Add newtab registration patches
 3. Create custom frame view overlay
@@ -286,6 +301,7 @@ Following M0's approach:
 5. Add command palette accelerator
 
 ### Phase 3: Assembly
+
 1. Wire up Ctrl+K to open command palette
 2. Set newtab as default new tab page
 3. Apply custom frame styling
@@ -294,6 +310,7 @@ Following M0's approach:
 ## Testing Strategy
 
 ### Without Full Build
+
 - ✅ Design token generation and validation
 - ✅ TypeScript type checking
 - ✅ Unit tests for WebUI components (where applicable)
@@ -301,6 +318,7 @@ Following M0's approach:
 - ✅ Patch verification against pinned revision
 
 ### With Full Build (Future)
+
 - GN configuration verification
 - Compilation success
 - Runtime smoke tests
@@ -342,18 +360,18 @@ Following M0's approach:
 
 ## Status Tracking
 
-| Component | State | Notes |
-|-----------|-------|-------|
-| Design tokens (M1) | ✅ IMPLEMENTED | Extended with new categories |
-| New Tab WebUI | 🛠 SCAFFOLDED | Components to be created |
-| Command Palette WebUI | 🛠 SCAFFOLDED | Components to be created |
-| New Tab C++ controller | 🛠 NOT STARTED | Requires full build |
-| Frame customization | 🛠 NOT STARTED | Requires full build |
-| Tab strip customization | 🛠 NOT STARTED | Requires full build |
-| Command palette accelerator | 🛠 NOT STARTED | Requires full build |
-| Patch set (new registrations) | 🛠 NOT STARTED | To be generated |
+| Component                     | State          | Notes                        |
+| ----------------------------- | -------------- | ---------------------------- |
+| Design tokens (M1)            | ✅ IMPLEMENTED | Extended with new categories |
+| New Tab WebUI                 | 🛠 SCAFFOLDED   | Components to be created     |
+| Command Palette WebUI         | 🛠 SCAFFOLDED   | Components to be created     |
+| New Tab C++ controller        | 🛠 NOT STARTED  | Requires full build          |
+| Frame customization           | 🛠 NOT STARTED  | Requires full build          |
+| Tab strip customization       | 🛠 NOT STARTED  | Requires full build          |
+| Command palette accelerator   | 🛠 NOT STARTED  | Requires full build          |
+| Patch set (new registrations) | 🛠 NOT STARTED  | To be generated              |
 
 ---
 
-*See [PROJECT-STATUS.md](PROJECT-STATUS.md) for the official status vocabulary and
-[FORK-DELTA.md](FORK-DELTA.md) for the current delta measurement.*
+_See [PROJECT-STATUS.md](PROJECT-STATUS.md) for the official status vocabulary and
+[FORK-DELTA.md](FORK-DELTA.md) for the current delta measurement._
